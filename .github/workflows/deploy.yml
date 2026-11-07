@@ -32,6 +32,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write   # to delete a stale artifact before re-uploading
 
 # Never two deployments at once, and never cancel one halfway: a half-published
 # site serves a manifest whose database object may not match.
@@ -59,6 +60,27 @@ jobs:
         run: sh tools/publish-dir.sh _site
 
       - uses: actions/configure-pages@v6
+
+      # Re-running a workflow keeps the previous attempt's artifact, and
+      # upload-pages-artifact then adds a second with the same name, so
+      # deploy-pages refuses: "Multiple artifacts named github-pages were
+      # unexpectedly found for this workflow run. Artifact count is 2."
+      #
+      # The action has no overwrite input and neither README mentions the
+      # error, so the stale one is deleted first. Re-running a failed deploy is
+      # the obvious thing to do and should not be a trap — it cost a run here
+      # on 7 Nov 2026.
+      - name: Drop the artifact left by a previous attempt
+        if: github.run_attempt != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+                  --jq '.artifacts[] | select(.name == "github-pages") | .id')
+          for id in $ids; do
+            echo "deleting stale github-pages artifact $id"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+          done
 
       - uses: actions/upload-pages-artifact@v5
         with:
