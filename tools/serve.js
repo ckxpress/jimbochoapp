@@ -56,14 +56,23 @@ const TYPES = {
 const rangeBytes = {};
 const rangeCount = {};
 
+const devSearchApi = require('./lib/dev-search-api.js');
+
 const server = http.createServer((req, res) => {
+  let url;
   let pathname;
   try {
-    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    url = new URL(req.url, 'http://localhost');
+    pathname = decodeURIComponent(url.pathname);
   } catch (err) {
     res.writeHead(400).end('Bad request');
     return;
   }
+
+  // Stands in for the Cloudflare Worker, using the Worker's own SQL. Without
+  // it the site cannot be developed against the API at all: production allows
+  // the jimbocho.app origin, so a page on localhost cannot call it.
+  if (devSearchApi.handle(req, res, url)) return;
 
   if (pathname.endsWith('/')) pathname += 'index.html';
 

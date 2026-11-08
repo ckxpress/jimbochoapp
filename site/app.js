@@ -173,9 +173,11 @@
         // backend to open.
         totalBooks = manifest.totalBooks || 0;
         updateChrome();
-        // A built database is queried by range request; without one, the JSON
-        // shards are loaded up front. Same UI either way.
-        source = manifest.db ? SqliteSource : JsonSource;
+        // An API in the manifest means search and filtered browse are
+        // answered server-side; the file backend stays for the book page and
+        // as the fallback if the API cannot be reached. Without either, the
+        // JSON shards are loaded up front. Same UI in all three cases.
+        source = manifest.api && manifest.db ? ApiSource : manifest.db ? SqliteSource : JsonSource;
 
         // Fetch the precomputed landing view before anything else. It is one
         // small asset and it decides whether first paint needs the backend at
@@ -842,6 +844,99 @@
       );
     },
   };
+
+  /**
+   * Search and filtered browse, answered by the Worker over D1.
+   *
+   * The file-over-HTTP backend below is still here and still correct; it is
+   * simply the wrong shape for anything the build did not precompute. Its
+   * cost is serial round trips, and measured on Hutchison 4G in Hong Kong —
+   * the reader this is for — that is 130 ms each, ~49 for a cold search, and
+   * **over 45 seconds** for a publisher outside the 312 the build precomputes.
+   * Counting facets there means fetching every matching row one trip at a
+   * time, and 37,741 publishers covering 52.9% of the catalogue are outside
+   * that set. Precomputing them all would need 1,163 MB against the 1 GB
+   * GitHub Pages allows.
+   *
+   * The same filter through this source returns in about a second.
+   *
+   * What does *not* move: the landing view and the precomputed scope pages,
+   * which are already one static request, and the book page, which needs the
+   * `docs` blob that stays in R2. So record/byIds/siblings below hand back to
+   * SqliteSource, opening the file lazily and only for a reader who actually
+   * opens a book.
+   */
+  var ApiSource = {
+    id: 'api',
+
+    /* Nothing to open. That is the point of it. */
+    prepare: function () { return Promise.resolve(); },
+
+    /**
+     * One request answers rows, total and facets together, so the facet panel
+     * costs nothing extra — the old backend spent more round trips on facets
+     * than on results. `facets()` below just hands back what this already got.
+     */
+    page: function (offset, limit, knownTotal) {
+      var wantFacets = offset === 0;
+      return ApiSource.query({ offset: offset, limit: limit, facets: wantFacets })
+        .then(function (data) {
+          if (wantFacets) ApiSource._facets = unpackFacets(data.facets || {});
+          return { rows: data.rows.map(mapSqlRow), total: data.total };
+        });
+    },
+
+    facets: function () {
+      // Already in hand from the page request; a second round trip would buy
+      // nothing. Null means the page request has not run yet.
+      return Promise.resolve(ApiSource._facets || null);
+    },
+
+    query: function (opts) {
+      var u = new URL(manifest.api.replace(/\/$/, '') + '/api/search');
+      var match = matchExpression(state.q);
+      if (match) u.searchParams.set('q', match);
+      FACETS.forEach(function (facet) {
+        var set = state.filters[facet.key];
+        if (!set || !set.size) return;
+        set.forEach(function (value) { u.searchParams.append(facet.key, value); });
+      });
+      if (state.sort && state.sort !== 'relevance') u.searchParams.set('sort', state.sort);
+      u.searchParams.set('offset', String(opts.offset || 0));
+      u.searchParams.set('limit', String(opts.limit || PAGE_SIZE));
+      if (!opts.facets) u.searchParams.set('facets', '0');
+
+      var t0 = (window.performance || Date).now();
+      return fetch(u.href).then(function (res) {
+        if (!res.ok) throw new Error('search API ' + res.status);
+        return res.json();
+      }).then(function (data) {
+        recordTiming('API ' + u.search, (window.performance || Date).now() - t0, data.rows && data.rows.length);
+        if (data.error) throw new Error(data.error);
+        return data;
+      });
+    },
+
+    /* The book page still reads the file: `docs` is 124 MB of deflated full
+       records and stayed in R2 rather than going to D1. Opened lazily, so a
+       reader who only searches never pays for it. */
+    record: function (id) {
+      return ensureFile().then(function () { return SqliteSource.record(id); });
+    },
+    byIds: function (ids) {
+      return ensureFile().then(function () { return SqliteSource.byIds(ids); });
+    },
+    siblings: function (isbn, exclude) {
+      return ensureFile().then(function () { return SqliteSource.siblings(isbn, exclude); });
+    },
+  };
+
+  /* Opens the range-request backend on demand, for the book page only. */
+  var filePrepared = null;
+  function ensureFile() {
+    if (!filePrepared) filePrepared = SqliteSource.prepare();
+    return filePrepared;
+  }
 
   var SqliteSource = {
     id: 'sqlite',
@@ -1679,6 +1774,21 @@
       })
       .catch(function (err) {
         if (token !== renderToken) return;
+
+        // The API is an optimisation, not a dependency: the whole catalogue is
+        // still in R2 and the file backend still answers every query it ever
+        // did, slowly. A reader whose network — or our Worker — is having a bad
+        // minute gets the slow answer rather than no answer.
+        if (source === ApiSource && !ApiSource._failed) {
+          ApiSource._failed = true;
+          console.warn('search API unavailable: ' + err.message + '; falling back to the database file.');
+          dbFallbackReason = err.message;
+          source = SqliteSource;
+          sourcePrepared = ensureFile(); // reuse it if the book page already opened it
+          renderBuildId();
+          return renderFromDatabase(token);
+        }
+
         setSearching(false);
         el.grid.innerHTML = '';
         el.empty.hidden = false;
@@ -3261,7 +3371,9 @@
     // shard — 109 files, 90 MB — and says so only on the About page. From the
     // outside that is indistinguishable from a slow database, and it is the
     // difference between a filter taking half a second and taking minutes.
-    var backend = !sourcePrepared ? '…' : source === JsonSource ? 'json shards' : 'sqlite';
+    var backend = !sourcePrepared
+      ? '…'
+      : source === JsonSource ? 'json shards' : source === ApiSource ? 'api' : 'sqlite';
 
     var parts = [];
     if (object) parts.push('db ' + object);

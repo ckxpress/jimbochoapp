@@ -152,12 +152,45 @@ npx wrangler deploy --config workers/search/wrangler.toml
 Then point `api.jimbocho.app` at the Worker (the `routes` entry in
 `wrangler.toml` does this on first deploy if the zone is on the account).
 
-## Still to do
+## Turning it on
 
-- The client switch: `site/app.js` gains a `D1Source` alongside `SqliteSource`,
-  chosen when the manifest names an API, falling back to the file if the API
-  is unreachable. Not written yet — it should wait until the probe and a
-  measured query from Hong Kong say this is worth finishing.
+The client picks the API when the manifest has a top-level `api`:
+
+```json
+{ "api": "https://jimbocho-search.<subdomain>.workers.dev" }
+```
+
+Add it to `site/data/manifest.json` and deploy. `tools/build-sqlite.js`
+rewrites that file on every rebuild but only replaces the keys it owns, so
+the value survives — the same way `db.url` does.
+
+To turn it off, delete the key: the site goes back to reading the file over
+range requests, which still works and is still correct, only slow for
+anything the build did not precompute.
+
+Measured on Hutchison 4G in Hong Kong, publisher 寂天文化 — 197 books, the
+case the precomputed pages do not cover:
+
+| | |
+|---|---|
+| reading the file over range requests | **over 45 s** |
+| the Worker over D1 | **about 1 s** |
+
+### What runs where
+
+| | |
+|---|---|
+| landing view, precomputed scope pages | static files, unchanged |
+| search, filtered browse, facet counts | the API |
+| book page (`docs` blob) | the file in R2, opened lazily |
+| API unreachable | falls back to the file, with a warning in the console |
+
+`npm start` serves `/api/search` itself, from `site/data/books.db`, using the
+Worker's own `buildWhere()`, `order()` and `COLUMNS` — see
+`tools/lib/dev-search-api.js`. Local development would otherwise have no API
+to call at all, since the deployed Worker only allows the jimbocho.app origin.
+
+## Still to do
 - Rebuild flow: `.github/workflows/rebuild.yml` currently builds the file and
   uploads to R2. It will need the D1 import too, or the two will drift.
 - Retire what becomes dead: once search and filtered browse are served by the
