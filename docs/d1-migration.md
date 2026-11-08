@@ -50,6 +50,44 @@ the import.
 3. **Does a Hong Kong reader reach an `apac` replica?** A location hint is
    explicitly not a guarantee.
 
+### Authenticate with a scoped token, not OAuth
+
+`wrangler login` asks for an OAuth grant covering Workers, Pages, D1, queues,
+email routing, containers and more — wrangler's standard scope set, far wider
+than anything here needs, and tied to the logged-in user rather than to this
+task. Wrangler skips OAuth entirely when it finds a token in the environment,
+so use one scoped to the job, the way the R2 upload token already is.
+
+Create it at **dash.cloudflare.com → My Profile → API Tokens → Create Token →
+Create Custom Token**, and grant only:
+
+| phase | permission | scope |
+|---|---|---|
+| probe and import | **Account → D1 : Edit** | this account only |
+| deploying the Worker | add **Account → Workers Scripts : Edit** | this account only |
+| custom domain on the Worker | add **Zone → Workers Routes : Edit** and **Zone → Zone : Read** | the `jimbocho.app` zone only |
+
+Set *Account Resources* to include the one account rather than "All accounts",
+and for the zone rows name the single zone. A TTL and an IP filter are both
+worth setting while the work is in progress.
+
+Start with D1 : Edit alone — nothing before the deploy step needs more. If
+`--remote` fails with error 10000, a community report says **Account Settings
+: Read** is also required; add that one permission and no others.
+
+Then, in the shell that will run wrangler (`read -s` keeps the token out of
+shell history and off the screen):
+
+```sh
+read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
+export CLOUDFLARE_ACCOUNT_ID=<account id from the dashboard URL>
+npx wrangler whoami    # should name the account without opening a browser
+```
+
+CI gets its own token, not this one: when `rebuild.yml` learns to run the D1
+import it needs **D1 : Edit** only, stored as a repository secret, so either
+token can be revoked without disturbing the other.
+
 ```sh
 npx wrangler d1 create jimbocho-search --location apac
 ```
