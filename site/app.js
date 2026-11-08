@@ -6,6 +6,26 @@
   'use strict';
 
   var PAGE_SIZE = 60;
+
+  /**
+   * How many rows the *first* page off the database asks for, as against the
+   * 60 a precomputed scope file carries.
+   *
+   * Measured on the live site, the search 香港文學 costs about 95 serial range
+   * requests: ~35 into the FTS index at 410–465 MB, which ramp up to 256 KiB
+   * as sql.js-httpvfs notices it is reading sequentially, and then **one 32 KiB
+   * read per result row** scattered across the `books` table at 0–100 MB. Sixty
+   * rows ordered by relevance land on sixty different pages, and nothing about
+   * a bigger chunk or a denser table changes that: it is sixty random reads,
+   * and SQLite cannot ask for the next one until the last has arrived.
+   *
+   * So the row count *is* the latency. Eighteen fills the grid above the fold
+   * at desktop width and more than fills it on a phone; the rest arrives by
+   * the usual infinite scroll while the reader is already reading. Browsing is
+   * untouched — a scope page is one static file and costs one request whether
+   * it holds 18 rows or 60.
+   */
+  var FIRST_DB_ROWS = 18;
   var DATA = 'data/';
 
   var state = {
@@ -1559,7 +1579,7 @@
 
     return ensureSource()
       .then(function () {
-        return source.page(0, PAGE_SIZE);
+        return source.page(0, FIRST_DB_ROWS);
       })
       .then(function (res) {
         if (token !== renderToken) return null;
