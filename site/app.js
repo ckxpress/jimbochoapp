@@ -21,6 +21,12 @@
   var byId = new Map();
   var fullShards = new Map();
   var results = [];
+  /* Cards on screen that a later page's duplicate can be folded into, keyed by
+     dedupeKey(). Cleared whenever the grid is, and carried across appends:
+     infinite scroll means the second copy of a book can arrive sixty results
+     after the first, and a fold that only looked within one page would miss
+     most of them. */
+  var shown = new Map();
   var totalBooks = 0;
   var firstPage = null;      // precomputed landing views, keyed by language scope
   var sourcePrepared = null; // the open-the-backend promise, created once
@@ -29,6 +35,14 @@
   var source = null; // JsonSource or SqliteSource, chosen by the manifest
   var renderToken = 0; // guards against out-of-order async renders
   var covers = localStorage.getItem('covers') !== 'off';
+
+  /* Whether records that are indistinguishable on screen share a card — see
+     site/dedupe.js for what counts as indistinguishable. On by default,
+     because the duplication is an artefact of holding the datasets apart and
+     not something a reader asked to see. Off is a real answer, so it is a
+     setting on 資料說明 rather than a constant: a reader checking what the
+     catalogue actually holds wants every record, one card each. */
+  var grouping = localStorage.getItem('grouping') !== 'off';
   var lastWritten = null; // the hash this app wrote, to skip echoing it back
   var dbFallbackReason = ''; // set when the database was rejected and JSON took over
 
@@ -800,6 +814,13 @@
     byIds: function (ids) {
       return Promise.resolve(ids.map(function (id) { return byId.get(id); }).filter(Boolean));
     },
+    siblings: function (isbn, exclude) {
+      return Promise.resolve(
+        rows.filter(function (r) {
+          return r.isbn === isbn && r.id !== exclude;
+        })
+      );
+    },
   };
 
   var SqliteSource = {
@@ -1036,6 +1057,29 @@
         return inflateDoc(res[0].doc).then(function (doc) {
           return mergeRecord(res[0], doc);
         });
+      });
+    },
+    /**
+     * Every other record carrying this ISBN.
+     *
+     * One index seek on idx_isbn and however many rows hang off it — 166 at
+     * the worst in the catalogue, two for almost everything — so it is cheap
+     * enough to run on every book page. The ordering is left to a temp b-tree
+     * on purpose: an index that satisfied it would have to be built over the
+     * whole table to serve a handful of rows.
+     */
+    siblings: function (isbn, exclude) {
+      if (!isbn) return Promise.resolve([]);
+      var columns =
+        'b.id, b.dataset, b.title, b.subtitle, b.authors, b.publisher, b.year, b.isbn,' +
+        ' b.classification, b.language, b.series, b.ref, b.src, b.price, b.currency, b.forsale, b.cover' +
+        (SqliteSource._zh ? ', b.parallel_title' : '');
+      var order = SqliteSource._zh ? 'b.dataset, b.zh_first, b.title_display' : 'b.dataset, b.title';
+      return SqliteSource.query(
+        'SELECT ' + columns + ' FROM books b WHERE b.isbn = ? AND b.id <> ? ORDER BY ' + order + ' LIMIT 200',
+        [isbn, exclude || '']
+      ).then(function (res) {
+        return res.map(mapSqlRow);
       });
     },
     byIds: function (ids) {
@@ -1652,12 +1696,24 @@
     if (!append) {
       el.grid.innerHTML = '';
       el.grid.className = 'grid' + (state.view === 'list' ? ' list' : '');
+      shown = new Map();
     }
 
     var terms = searchTerms(state.q);
     var frag = document.createDocumentFragment();
     slice.forEach(function (row) {
-      frag.appendChild(card(row, terms));
+      // Folded at display time, not in the data: `results` and every count
+      // still hold every record, and turning this off shows them all again.
+      var key = grouping ? dedupeKey(row, displayTitle(row)) : '';
+      var group = key && shown.get(key);
+      if (group) {
+        group.members.push(row);
+        paintDupes(group);
+        return;
+      }
+      var node = card(row, terms);
+      if (key) shown.set(key, { node: node, members: [row], note: null });
+      frag.appendChild(node);
     });
     el.grid.appendChild(frag);
 
@@ -1684,6 +1740,48 @@
         });
       }
     }
+  }
+
+  /**
+   * Says on a card that it stands for more than one record.
+   *
+   * Written into the card already on screen rather than by re-rendering,
+   * because the duplicate usually arrives with a later page: re-rendering the
+   * grid under a reader who is scrolling it would lose their place, and
+   * appending is the only reason infinite scroll is bearable here.
+   *
+   * The wording is 書目, not 本 — the catalogue counts records and these are
+   * records. What the card is saying is that the others say the same thing.
+   */
+  function paintDupes(group) {
+    var extra = group.members.length - 1;
+    if (extra < 1) return;
+
+    if (!group.note) {
+      var body = group.node.querySelector('.card-body');
+      if (!body) return;
+      group.note = document.createElement('p');
+      group.note.className = 'card-dupes';
+      // Before the 我有 button, which the list view puts last in the body:
+      // appending would otherwise leave a note about the catalogue sitting
+      // underneath the one control on the card.
+      body.insertBefore(group.note, body.querySelector('.own-inline'));
+    }
+
+    // Which datasets the folded records came from. This is the provenance the
+    // fold would otherwise hide, so it is the tooltip, and the book page lists
+    // every one of them with a link.
+    var names = [];
+    group.members.forEach(function (row) {
+      var name = datasetName(row._ds);
+      if (names.indexOf(name) === -1) names.push(name);
+    });
+
+    group.note.textContent = '另有 ' + extra + ' 筆相同書目';
+    group.note.title =
+      names.length > 1
+        ? '同一本書在 ' + names.join('、') + ' 各有紀錄，書名、副題、ISBN 及出版年份完全相同。按下可見全部紀錄。'
+        : names[0] + ' 有 ' + group.members.length + ' 筆完全相同的紀錄。按下可見全部紀錄。';
   }
 
   /* Keeps filling while the end of the list is in reach: an observer only
@@ -2412,7 +2510,66 @@
         );
       }
       document.title = (displayTitle(book) || '書刊') + ' — 神保町';
+      renderSiblings(book, token);
     });
+  }
+
+  /**
+   * The other records carrying this book's ISBN.
+   *
+   * This is where the datasets being held apart stops being a cost. Two
+   * things end up here that the grid cannot show:
+   *
+   *   9780190481667   hkpl-2017  牛   · 吳煦斌   · 牛津大學出版社(中國)有限公司
+   *                   ol-hk      Niu · Wu Xubin · Oxford University Press
+   *
+   * — one book catalogued twice, in two forms, neither of which can be
+   * discarded without losing a name somebody searches by, so the grid keeps
+   * both cards and this section connects them; and the records a card did
+   * fold, which are reachable here rather than merged out of existence.
+   *
+   * It also shows what an ISBN is really worth as an identifier here: ask for
+   * Halsbury's Laws of Hong Kong and 165 other records answer, because every
+   * volume of a loose-leaf service shares the set's one number.
+   *
+   * Loaded after the page is painted, not with it. A book page should not wait
+   * on this, and when the query fails the section simply does not appear.
+   */
+  function renderSiblings(book, token) {
+    var host = el.detail.querySelector('#detail-siblings');
+    if (!host || !book.isbn || !source.siblings) return;
+
+    source
+      .siblings(book.isbn, book.id)
+      .then(function (list) {
+        if (token !== renderToken || !list || !list.length) return;
+
+        var out = [];
+        out.push('<h2 class="section-title">相同 ISBN 的其他紀錄</h2>');
+        out.push(
+          '<p class="section-note">本目錄把各資料集並列保存，不作合併，因此同一本書可能有多筆紀錄；書名或會以不同方式著錄，' +
+            '套書各冊亦往往共用一個 ISBN。瀏覽時，書名、副題及出版年份完全相同的紀錄會共用一張卡片，其餘各自顯示。</p>'
+        );
+        out.push('<ul class="siblings">');
+        list.slice(0, 50).forEach(function (row) {
+          var meta = [datasetName(row._ds), row.publisher, row.year ? String(row.year) : '']
+            .filter(Boolean)
+            .join(' · ');
+          out.push(
+            '<li><a href="#/book/' + escapeAttr(row.id) + '">' +
+              escapeHtml(displayTitle(row) || '無題') +
+              '</a>' +
+              (row.subtitle ? ' <span class="siblings-sub">' + escapeHtml(row.subtitle) + '</span>' : '') +
+              '<span class="siblings-meta">' + escapeHtml(meta) + '</span></li>'
+          );
+        });
+        out.push('</ul>');
+        if (list.length > 50) {
+          out.push('<p class="section-note">共 ' + fmt(list.length) + ' 筆，以上為其中 50 筆。</p>');
+        }
+        host.innerHTML = out.join('');
+      })
+      .catch(function () {});
   }
 
   function fetchFull(row) {
@@ -2589,6 +2746,9 @@
     }
     row2(out, '紀錄編號', '<code>' + escapeHtml(book.id) + '</code>', true);
     out.push('</tbody></table>');
+
+    /* --- other records of the same book, filled in by renderSiblings() --- */
+    out.push('<div id="detail-siblings"></div>');
     out.push('</div>');
 
     return out.join('');
@@ -2866,6 +3026,28 @@
       '<p>目錄紀錄採用 ISBD 標點，因此<em>「正書名 : 副題 = 並列書名 / 責任者說明」</em>會拆分為獨立欄位。ISBN、定價、頁數與尺寸皆從自由文本中解析。兩個欄位標示為<span class="derived">推算</span>：內容簡介由目錄欄位組成（原始資料沒有簡介），版權一行則為出版者加出版年份。</p><p>目錄分中英文兩冊出版，不少英文紀錄以並列書名記載中文書名。本站以中文書名為主，另一語言的書名顯示於其下。</p>'
     );
 
+    out.push('<h2>重複紀錄</h2>');
+    out.push(
+      '<label class="switch"><input type="checkbox" id="grouping-toggle"' + (grouping ? ' checked' : '') + '> 相同的書目共用一張卡片</label>'
+    );
+    // Counted by the build with the same function the grid folds with, so a
+    // rebuild cannot leave this paragraph quoting last month's catalogue.
+    var dup = manifest.duplicates;
+    out.push(
+      '<p style="margin-top:8px">本目錄把各資料集並列保存而不作合併：一本書向書號中心登記、由國家圖書館編目、再由大學圖書館收藏，三筆紀錄都是真的，而刪去任何一筆都會失去一個來源。' +
+        '代價是同一本書會出現多次' +
+        (dup && dup.records
+          ? '——全目錄 ' + fmt(manifest.totalBooks || 0) + ' 筆紀錄中，有 ' + fmt(dup.records) +
+            ' 筆的 ISBN、書名、副題及出版年份完全相同，分屬 ' + fmt(dup.books) + ' 本書'
+          : '') +
+        '。瀏覽時這些紀錄共用一張卡片，卡片上註明「另有 N 筆相同書目」，書頁則列出全部紀錄。</p>'
+    );
+    out.push(
+      '<p>只在四項全部相同時才合併。套書各冊共用一個 ISBN（《民間私藏臺灣宗教資料彙編》34 冊同一書號，冊次寫在副題），' +
+        '而同一個 ISBN 也可能有不同的書名著錄（<em>牛／Niu</em>、<em>吳煦斌／Wu Xubin</em>），兩者都有人搜尋。' +
+        '這些紀錄一概各自顯示，不作取捨。關閉此選項後，每筆紀錄各佔一張卡片。</p>'
+    );
+
     out.push('<h2>封面圖片</h2>');
     out.push(
       '<label class="switch"><input type="checkbox" id="covers-toggle"' + (covers ? ' checked' : '') + '> 以 ISBN 查詢封面圖片</label>'
@@ -2885,6 +3067,16 @@
     toggle.addEventListener('change', function () {
       covers = toggle.checked;
       localStorage.setItem('covers', covers ? 'on' : 'off');
+      renderAbout();
+    });
+    var group = document.getElementById('grouping-toggle');
+    group.addEventListener('change', function () {
+      grouping = group.checked;
+      localStorage.setItem('grouping', grouping ? 'on' : 'off');
+      // route() re-renders the grid on the way back to it, which resets this
+      // anyway; dropped here so nothing can fold against the old setting in
+      // between.
+      shown = new Map();
       renderAbout();
     });
     document.title = '資料說明 — 神保町';

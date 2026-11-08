@@ -688,6 +688,30 @@ a {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* "另有 N 筆相同書目" — the card standing for more than one record.
+   Deliberately quieter than the tags beside it: it is a note about the
+   catalogue, not a fact about the book, and a reader who does not care why
+   there were six identical cards yesterday should be able to skim past it. */
+.card-dupes {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin: 4px 0 0;
+  cursor: help;
+}
+.card-dupes::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.grid.list .card-dupes {
+  font-size: 12.5px;
+}
+
 mark {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: inherit;
@@ -865,6 +889,49 @@ a.tag-link:focus-visible {
   color: var(--text-faint);
   margin: 34px 0 12px;
 }
+.section-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  margin: -4px 0 14px;
+  max-width: 62ch;
+}
+
+/* 相同 ISBN 的其他紀錄. One line per record, because the point of the list is
+   to show that they differ — in which dataset, which form of the title, which
+   publisher — and a table would bury that in columns mostly empty. */
+.siblings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+}
+.siblings li {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.siblings-sub {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.siblings-meta {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .siblings-meta {
+    margin-left: 0;
+    white-space: normal;
+    flex-basis: 100%;
+  }
+}
+
 .meta-table {
   width: 100%;
   border-collapse: collapse;

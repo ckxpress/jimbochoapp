@@ -295,6 +295,7 @@ function main() {
   manifest.firstPage = precomputed.firstPage;
   manifest.pages = precomputed.pages;
   manifest.facetLists = writeFacetLists();
+  manifest.duplicates = countDuplicates();
   fs.writeFileSync(path.join(DATA_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
   console.log(
@@ -792,6 +793,47 @@ function writeFacetLists() {
 }
 
 /** Runs a query and parses sqlite3's own JSON output, so types survive. */
+/**
+ * How many records the grid will fold into a shared card.
+ *
+ * The catalogue holds its datasets side by side rather than merged, so one
+ * book can hold several true records. site/dedupe.js decides when two of them
+ * are indistinguishable on screen; this counts them, because 資料說明 tells
+ * the reader how much of what they are browsing is the same book twice, and a
+ * number typed into that page would be wrong at the next import.
+ *
+ * Counted with the same function the browser runs, over the same display title
+ * the browser would show — not an approximation of it in SQL, which is how
+ * the first version of this came out 1,900 cards different.
+ */
+function countDuplicates() {
+  const { dedupeKey } = require('./lib/dedupe.js');
+  const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+  const hasCjk = (text) => CJK.test(text || '');
+
+  const groups = new Map();
+  for (const r of json('SELECT title, parallel_title, subtitle, isbn, year FROM books')) {
+    const title = !hasCjk(r.title) && hasCjk(r.parallel_title) ? r.parallel_title : r.title || '';
+    const key = dedupeKey(r, title);
+    if (!key) continue;
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+
+  let books = 0;
+  let records = 0;
+  for (const n of groups.values()) {
+    if (n < 2) continue;
+    books++;
+    records += n;
+  }
+
+  console.log(
+    '  Duplicate records: ' + records + ' in ' + books + ' books (' +
+      (records - books) + ' cards folded at display time)'
+  );
+  return { books: books, records: records };
+}
+
 function json(sql) {
   const out = execFileSync('sqlite3', ['-json', DB, sql], { maxBuffer: 1 << 28 }).toString().trim();
   return out ? JSON.parse(out) : [];

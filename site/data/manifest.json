@@ -4025,5 +4025,9 @@
       "publisher": 38053,
       "classification": 1149
     }
+  },
+  "duplicates": {
+    "books": 8150,
+    "records": 16662
   }
 }
