@@ -9,8 +9,11 @@ routes = [
   { pattern = "api.jimbocho.app", custom_domain = true }
 ]
 
-# `database_id` is filled in by `wrangler d1 create jimbocho-search`.
+# Created 8 Nov 2026 with `wrangler d1 create jimbocho-search --location apac`,
+# which reported region APAC. The id is an identifier, not a secret.
+# `binding` stays DB because the Worker reads env.DB; wrangler's suggested
+# name was only a default.
 [[d1_databases]]
 binding = "DB"
 database_name = "jimbocho-search"
-database_id = "PUT-THE-ID-FROM-wrangler-d1-create-HERE"
+database_id = "fdc5039d-aa28-4b84-804b-82d117a171f9"
