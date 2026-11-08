@@ -294,13 +294,6 @@
         render();
       }, 120);
     }
-    // Touching the search box is the earliest honest signal that this reader
-    // is going to search, and warming costs nothing to one who never does.
-    // Not `once`: the first focus can land before the manifest has chosen a
-    // backend, and a one-shot listener would be spent on that. warm() is
-    // idempotent, so firing on every focus costs a promise lookup.
-    el.q.addEventListener('focus', function () { warmScoring(); });
-
     el.q.addEventListener('input', function (e) {
       // Skip the keystrokes an IME is still turning into a character —
       // searching for the raw 倉頡 or pinyin letters finds nothing.
@@ -951,27 +944,38 @@
       if (SqliteSource._warming) return SqliteSource._warming;
 
       var SLICES = 8;
-      var step = Math.ceil(446090 / SLICES);
-      var chain = Promise.resolve();
-      for (var i = 0; i < SLICES; i++) {
-        (function (lo) {
-          chain = chain.then(function () {
-            // No _busy check: loadMore sets that flag the moment the first
-            // page renders and holds it while the reader scrolls, so a guard
-            // on it meant the warm never ran at all. The worker serialises
-            // queries anyway — the slices are what keep a reader's own query
-            // from waiting behind the whole table.
-            return SqliteSource.query(
-              'SELECT count(*) AS n FROM books_fts_docsize WHERE id BETWEEN ? AND ?',
-              [lo, lo + step]
-            ).catch(function () {});
+      var span = Math.ceil(446090 / SLICES);
+      var waits = 0;
+
+      /* Yields to the reader. An earlier version did not, and a search begun
+         two seconds after the warm started took 29.6 s on the live site —
+         no better than no warm at all — because its query sat in the worker
+         behind slices nobody was waiting for. Checking _pending first means
+         a reader waits for at most the one slice already submitted. */
+      function slice(i) {
+        if (i >= SLICES) return Promise.resolve();
+
+        if (SqliteSource._pending > 0) {
+          // Give up rather than spin for ever if something stays pending.
+          if (++waits > 400) return Promise.resolve();
+          return new Promise(function (go) { setTimeout(go, 300); }).then(function () {
+            return slice(i);
           });
-        })(i * step);
+        }
+
+        return SqliteSource.query(
+          'SELECT count(*) AS n FROM books_fts_docsize WHERE id BETWEEN ? AND ?',
+          [i * span, (i + 1) * span],
+          true // background: nobody is waiting on this
+        ).catch(function () {}).then(function () {
+          return slice(i + 1);
+        });
       }
 
-      SqliteSource._warming = chain;
-      return chain;
+      SqliteSource._warming = slice(0);
+      return SqliteSource._warming;
     },
+
     verify: function () {
       var probe = manifest.db.probe;
       if (!probe) return Promise.resolve();
@@ -1174,7 +1178,17 @@
         }
       );
     },
-    query: function (sql, params) {
+    /**
+     * `background` marks a query nobody is waiting for — only the bm25 warm.
+     * Everything else counts towards _pending, which the warm reads to decide
+     * whether to keep going. The worker runs one query at a time, so a slice
+     * submitted while a reader waits is a slice the reader waits for too.
+     */
+    query: function (sql, params, background) {
+      if (!background) SqliteSource._pending = (SqliteSource._pending || 0) + 1;
+      var settle = function () {
+        if (!background) SqliteSource._pending--;
+      };
       // Timed, because the cost of a query here is invisible everywhere else:
       // the range requests happen inside a Web Worker, so they appear in
       // neither the page's resource timeline nor the browser's network panel.
@@ -1182,9 +1196,11 @@
       // which is exactly the question that took four deploys to answer.
       var t0 = (window.performance || Date).now();
       return SqliteSource._worker.db.query(sql, params || []).then(function (res) {
+        settle();
         recordTiming(sql, (window.performance || Date).now() - t0, res && res.length);
         return res;
       }, function (err) {
+        settle();
         recordTiming(sql, (window.performance || Date).now() - t0, 'error');
         throw err;
       });
@@ -1728,13 +1744,17 @@
   /**
    * Pulls the bm25 length table into the page cache, once, in the background.
    * Never awaited and never allowed to fail a render — see SqliteSource.warm.
+   *
+   * Called only after a search the database actually answered, never on the
+   * way into one. Starting it when the search box was focused was measured
+   * and dropped: eighteen requests do not finish in the seconds it takes to
+   * type, and the reader's own query ended up queued behind the slices —
+   * 政治 took 29.6 s that way, which is what it cost with no warm at all.
+   * So the first search of a session pays full price and every one after it
+   * does not.
    */
   function warmScoring() {
     if (!source || !source.warm) return;
-    // Opens the database if the reader has not made it do so yet, which on
-    // the landing page it has not: that view is answered from a precomputed
-    // file. Focusing the search box is as good a moment as any, since the
-    // next thing that happens is a query.
     ensureSource().then(function () {
       if (source && source.warm) source.warm();
     }, function () {});
