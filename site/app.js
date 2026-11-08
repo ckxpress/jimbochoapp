@@ -294,6 +294,13 @@
         render();
       }, 120);
     }
+    // Touching the search box is the earliest honest signal that this reader
+    // is going to search, and warming costs nothing to one who never does.
+    // Not `once`: the first focus can land before the manifest has chosen a
+    // backend, and a one-shot listener would be spent on that. warm() is
+    // idempotent, so firing on every focus costs a promise lookup.
+    el.q.addEventListener('focus', function () { warmScoring(); });
+
     el.q.addEventListener('input', function (e) {
       // Skip the keystrokes an IME is still turning into a character —
       // searching for the raw 倉頡 or pinyin letters finds nothing.
@@ -915,6 +922,56 @@
      * a single indexed lookup and turns silent corruption into a clean
      * fallback to the JSON shards.
      */
+    /**
+     * Reads books_fts_docsize into the page cache, in slices.
+     *
+     * bm25 normalises by document length, and the lengths live in that shadow
+     * table. Measured against dbstat, a search for 香港文學 spends 16 of its
+     * 49 range requests there — as many as fetching the result rows — and a
+     * broad query spends far more, because the table is read once per
+     * matching document and 漫畫 matches 24,004 of them.
+     *
+     * The table is only 4.3 MB, and the build VACUUMs, so its 1,097 pages sit
+     * in 139 chunks that are nearly all its own. Read start to end it is a
+     * sequential scan, which is the one access pattern sql.js-httpvfs is good
+     * at: it ramps from 32 KiB to 256 KiB and fetches the lot in about twenty
+     * requests. After that every search in the session scores for free.
+     *
+     * Dropping the table instead was measured and rejected. Rebuilt with
+     * columnsize=0 the index is 4.3 MB smaller and bm25 still runs, but over
+     * 9,708 matches for 東立 it returns 2 distinct scores where the real index
+     * returns 58, so ORDER BY bm25 collapses to insertion order. Across 30
+     * real queries not one kept its top 20.
+     *
+     * Sliced rather than run as one statement because the worker takes one
+     * query at a time: a reader who searches mid-warm would otherwise wait
+     * for all of it, and this way they wait for at most one slice.
+     */
+    warm: function () {
+      if (SqliteSource._warming) return SqliteSource._warming;
+
+      var SLICES = 8;
+      var step = Math.ceil(446090 / SLICES);
+      var chain = Promise.resolve();
+      for (var i = 0; i < SLICES; i++) {
+        (function (lo) {
+          chain = chain.then(function () {
+            // No _busy check: loadMore sets that flag the moment the first
+            // page renders and holds it while the reader scrolls, so a guard
+            // on it meant the warm never ran at all. The worker serialises
+            // queries anyway — the slices are what keep a reader's own query
+            // from waiting behind the whole table.
+            return SqliteSource.query(
+              'SELECT count(*) AS n FROM books_fts_docsize WHERE id BETWEEN ? AND ?',
+              [lo, lo + step]
+            ).catch(function () {});
+          });
+        })(i * step);
+      }
+
+      SqliteSource._warming = chain;
+      return chain;
+    },
     verify: function () {
       var probe = manifest.db.probe;
       if (!probe) return Promise.resolve();
@@ -1594,6 +1651,7 @@
         // made a long list feel stuck part-way down.
         requestAnimationFrame(maybeLoadMore);
         facetCounts.fresh = false;
+        warmScoring();
         return ensureFacets(token);
       })
       .catch(function (err) {
@@ -1665,6 +1723,21 @@
         facetCounts.running = false;
         el.facets.removeAttribute('aria-busy');
       });
+  }
+
+  /**
+   * Pulls the bm25 length table into the page cache, once, in the background.
+   * Never awaited and never allowed to fail a render — see SqliteSource.warm.
+   */
+  function warmScoring() {
+    if (!source || !source.warm) return;
+    // Opens the database if the reader has not made it do so yet, which on
+    // the landing page it has not: that view is answered from a precomputed
+    // file. Focusing the search box is as good a moment as any, since the
+    // next thing that happens is a query.
+    ensureSource().then(function () {
+      if (source && source.warm) source.warm();
+    }, function () {});
   }
 
   /** Fetches the next page and appends it, without re-running the facets. */
