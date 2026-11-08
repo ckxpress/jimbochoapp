@@ -95,22 +95,33 @@ npx wrangler d1 create jimbocho-search --location apac
 Put the printed `database_id` into `workers/search/wrangler.toml`, then:
 
 ```sh
-npx wrangler d1 execute jimbocho-search --remote --command "
-CREATE VIRTUAL TABLE probe USING fts5(search, content='', tokenize=\"unicode61 remove_diacritics 2\");
-INSERT INTO probe(rowid, search) VALUES (1, '香港 港文 文學');
-INSERT INTO probe(rowid, search) VALUES (2, '香港 港文 文學 文學 研究');
-INSERT INTO probe(rowid, search) VALUES (3, '台灣 灣文 文學');
-SELECT rowid, bm25(probe) AS score FROM probe WHERE probe MATCH '\"香港\" AND \"文學\"' ORDER BY bm25(probe);
-"
-```
-
-Two rows back, with **two different scores**, means all three answers are yes.
-One score repeated means bm25 is not normalising and ranking will be no better
-than insertion order — stop and reconsider before importing anything.
-
-```sh
+npx wrangler d1 execute jimbocho-search --remote --file=tools/d1/probe.sql
+npx wrangler d1 execute jimbocho-search --remote --command "SELECT rowid, bm25(probe) AS score FROM probe WHERE probe MATCH '香港 AND 文學' ORDER BY bm25(probe);"
 npx wrangler d1 execute jimbocho-search --remote --command "DROP TABLE probe;"
 ```
+
+The setup is a file and the question is a `--command` on purpose: `--file`
+goes through D1's import path, which reports that it ran seven queries and
+read ten rows but discards the rows themselves — so the one thing the probe
+exists to show never reaches the screen.
+
+The MATCH expression is unquoted (`香港 AND 文學`, not `"香港" AND "文學"`).
+Checked against stock SQLite, the two forms give identical scores, and the
+unquoted one survives a trip through shell quoting intact.
+
+Stock SQLite 3.54.0 answers:
+
+```
+1|-2.288e-06
+2|-2.1872321961273526e-06
+```
+
+Two rows, two **different** scores, the shorter document ranked first — that
+gap is length normalisation working. The same shape from D1 means go. The
+same score twice means bm25 is not normalising there and ranking would be no
+better than insertion order: stop, because importing 250 MB would not fix it.
+An error on `CREATE VIRTUAL TABLE` means D1 has no FTS5 and the plan needs
+rethinking from the top.
 
 ## The import
 
