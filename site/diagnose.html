@@ -1,0 +1,138 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>連線診斷 — 神保町</title>
+<!--
+  Not linked from the site. It exists because the cost of a search here is
+  serial HTTP range requests against the database in R2, and that cost cannot
+  be measured from the developer's machine: this project's measurements come
+  from a US-exiting VPN where a round trip is ten to twenty times what a Hong
+  Kong reader pays. Guessing from those numbers has produced wrong conclusions
+  more than once.
+
+  So this runs the three access patterns that matter, on the reader's own
+  connection, and prints what a search would cost under each.
+-->
+<style>
+  :root { color-scheme: light dark; --bg:#fbfaf7; --fg:#1b1a17; --dim:#6a665d; --line:#e2ded4; --accent:#7a5c3e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17150f; --fg:#eceae4; --dim:#9a958a; --line:#302c23; --accent:#c8a070; }
+  }
+  body { background:var(--bg); color:var(--fg); margin:0; padding:24px 16px 56px;
+         font:16px/1.6 ui-sans-serif,-apple-system,"Noto Sans TC",sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.lede { color:var(--dim); font-size:14px; margin:0 0 20px; }
+  button { font:inherit; font-size:17px; padding:13px 20px; width:100%;
+           border:1px solid var(--accent); border-radius:10px; background:transparent;
+           color:var(--accent); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  button[disabled] { opacity:.5; }
+  pre { white-space:pre-wrap; word-break:break-word; background:color-mix(in srgb, var(--fg) 5%, transparent);
+        border:1px solid var(--line); border-radius:10px; padding:14px; font-size:13.5px; margin:18px 0 0; }
+  .note { font-size:13px; color:var(--dim); margin-top:14px; }
+</style>
+<main>
+  <h1>連線診斷</h1>
+  <p class="lede">量度這部裝置到資料庫的往返延遲，並推算一次搜尋需時。約下載 1.5 MB。</p>
+  <button id="go">開始測試</button>
+  <pre id="out">尚未開始。</pre>
+  <p class="note">此頁不會收集或傳送任何資料，結果只顯示在這裡。</p>
+</main>
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var go = document.getElementById('go');
+  var lines = [];
+  function say(s) { lines.push(s); out.textContent = lines.join('\n'); }
+
+  /* A search today issues about 49 of these one after another; the row fetches
+     among them — about 19 — are the ones that could be issued together. */
+  var TODAY = 49, ROWS = 19, FLOOR = 15, N = 12, CHUNK = 32768;
+
+  function ranges(seed, stride) {
+    var r = [];
+    for (var i = 0; i < N; i++) { var a = seed + i * stride; r.push([a, a + CHUNK - 1]); }
+    return r;
+  }
+
+  function ms(x) { return Math.round(x) + ' ms'; }
+  function secs(x) { return (x / 1000).toFixed(1) + ' s'; }
+
+  go.addEventListener('click', function () {
+    go.disabled = true;
+    lines = [];
+    run().catch(function (e) { say('\n測試失敗：' + e.message); }).then(function () {
+      go.disabled = false;
+      go.textContent = '再測一次';
+    });
+  });
+
+  async function run() {
+    say('讀取 manifest…');
+    var mf = await fetch('data/manifest.json', { cache: 'no-store' }).then(function (r) { return r.json(); });
+    // Absolute: the Worker below runs from a blob: URL and cannot resolve a
+    // relative path against it. Live the manifest names an absolute R2 URL, so
+    // this only bites a local build — which is exactly where it was found.
+    var url = new URL((mf.db && mf.db.url) || ('data/' + mf.db.file), location.href).href;
+    say('資料庫：' + url.split('/').pop() + '  (' + (mf.db.bytes / 1048576).toFixed(0) + ' MB)');
+
+    // Which Cloudflare edge, and is the object cached there. A MISS means every
+    // range is fetched from R2 instead of the nearby cache.
+    var head = await fetch(url, { headers: { Range: 'bytes=0-1023' } });
+    say('邊緣節點：' + (head.headers.get('cf-ray') || '—') +
+        '   快取：' + (head.headers.get('cf-cache-status') || '—'));
+    say('');
+
+    // Offsets differ per pattern so nothing is answered from the browser cache.
+    var t, i, r;
+
+    say('① 逐個請求（網頁）…');
+    r = ranges(1048576, 7340032);
+    t = performance.now();
+    for (i = 0; i < r.length; i++) {
+      await fetch(url, { headers: { Range: 'bytes=' + r[i][0] + '-' + r[i][1] } }).then(function (x) { return x.arrayBuffer(); });
+    }
+    var serial = (performance.now() - t) / N;
+    say('   每個請求 ' + ms(serial));
+
+    say('② 同時請求（網頁）…');
+    r = ranges(2097152, 7340032);
+    t = performance.now();
+    await Promise.all(r.map(function (p) {
+      return fetch(url, { headers: { Range: 'bytes=' + p[0] + '-' + p[1] } }).then(function (x) { return x.arrayBuffer(); });
+    }));
+    var parallel = performance.now() - t;
+    say('   ' + N + ' 個合共 ' + ms(parallel) + '（即每個 ' + ms(parallel / N) + '）');
+
+    // What the database actually does: synchronous XHR inside a Worker.
+    say('③ 逐個請求（Worker，同步 XHR —— 資料庫實際用的方式）…');
+    var src = 'onmessage=function(e){var t0=Date.now();for(var i=0;i<e.data.r.length;i++){' +
+              'var x=new XMLHttpRequest();x.open("GET",e.data.u,false);x.responseType="arraybuffer";' +
+              'x.setRequestHeader("Range","bytes="+e.data.r[i][0]+"-"+e.data.r[i][1]);x.send();}' +
+              'postMessage(Date.now()-t0);};';
+    var w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    r = ranges(3145728, 7340032);
+    var workerTotal = await new Promise(function (res, rej) {
+      w.onmessage = function (e) { res(e.data); };
+      w.onerror = function (e) { rej(new Error(e.message || 'worker failed')); };
+      w.postMessage({ u: url, r: r });
+    });
+    w.terminate();
+    var worker = workerTotal / N;
+    say('   每個請求 ' + ms(worker));
+
+    say('');
+    say('推算一次「冷」搜尋：');
+    say('  現在（' + TODAY + ' 個逐一請求）        約 ' + secs(TODAY * worker));
+    // Issuing the row reads together would collapse ROWS serial trips into
+    // roughly the cost of one batch.
+    var batched = (TODAY - ROWS) * worker + parallel * (ROWS / N);
+    say('  若列資料改為同時請求        約 ' + secs(batched));
+    say('  理論下限（' + FLOOR + ' 個請求）          約 ' + secs(FLOOR * worker));
+    say('');
+    say('（① 與 ③ 的差距若很大，問題在 Worker；');
+    say('  ② 若遠快於 ①，同時請求就值得做。）');
+  }
+})();
+</script>
