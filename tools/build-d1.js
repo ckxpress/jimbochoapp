@@ -56,6 +56,7 @@ function main() {
   const chunks = [];
   chunks.push(...emitBooks(total));
   chunks.push(...emitFts(total));
+  chunks.push(...emitFacetCounts());
 
   fs.writeFileSync(
     path.join(OUT, 'chunks.json'),
@@ -119,6 +120,31 @@ function emitFts(total) {
       })
       .join('\n') + '\n';
     out.push(write('fts', n++, sql, rows.length));
+  }
+  return out;
+}
+
+/**
+ * The build's own facet counts, which the Worker reads instead of running a
+ * whole-catalogue GROUP BY. Small — about 95,750 rows — and re-runnable,
+ * because nothing here is a contentless FTS table.
+ */
+function emitFacetCounts() {
+  const out = [];
+  let n = 0;
+  const total = json('SELECT COUNT(*) AS n FROM facet_counts')[0].n;
+  for (let offset = 0; offset < total; offset += PER_CHUNK) {
+    const rows = json(
+      'SELECT scope, facet, value, n FROM facet_counts ORDER BY rowid LIMIT ' +
+        PER_CHUNK + ' OFFSET ' + offset
+    );
+    if (!rows.length) break;
+    const sql = rows
+      .map((r) =>
+        'INSERT INTO facet_counts (scope,facet,value,n) VALUES (' +
+        [lit(r.scope), lit(r.facet), lit(r.value), lit(r.n)].join(',') + ');')
+      .join('\n') + '\n';
+    out.push(write('facets', n++, sql, rows.length));
   }
   return out;
 }

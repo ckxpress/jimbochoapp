@@ -9,6 +9,7 @@
 -- The schema mirrors tools/build-sqlite.js so the same SQL answers both, and
 -- so the client's mapSqlRow() needs no new shape.
 
+DROP TABLE IF EXISTS facet_counts;
 DROP TABLE IF EXISTS books_fts;
 DROP TABLE IF EXISTS books;
 
@@ -44,3 +45,14 @@ CREATE TABLE books (
 CREATE VIRTUAL TABLE books_fts USING fts5(
   search, content='', tokenize="unicode61 remove_diacritics 2"
 );
+
+-- Facet counts computed at build time, for the case that has no filter left
+-- to narrow it: a facet is never narrowed by a filter on itself, so asking
+-- "which publishers are there" on a publisher-filtered page means counting
+-- the whole catalogue. Live, that is a 446,090-row GROUP BY — eight of them
+-- per request, which exhausted D1's daily row allowance in a few dozen
+-- requests. These rows answer it in an index seek instead.
+--
+-- scope '' is the whole catalogue; the rest are the per-scope counts the
+-- static site already uses.
+CREATE TABLE facet_counts (scope TEXT, facet TEXT, value TEXT, n INTEGER);

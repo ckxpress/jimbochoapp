@@ -54,6 +54,34 @@ function run(sql, params) {
   });
 }
 
+/**
+ * A stand-in for D1's binding, backed by the sqlite3 CLI.
+ *
+ * This exists so the Worker's own page(), count() and facetCounts() run here
+ * unchanged. Rebuilding those queries locally was the first version, and it
+ * was already wrong within the hour: the Worker grew a fast path that reads
+ * precomputed facet counts instead of a whole-catalogue GROUP BY, and the
+ * local copy knew nothing about it. Two implementations of one query drifting
+ * apart is the bug that looks correct from either side.
+ */
+function devEnv() {
+  const statement = (sql, params) => {
+    const exec = () => run(sql, params).then((results) => ({ results }));
+    return {
+      bind: (...bound) => statement(sql, bound),
+      all: exec,
+      first: () => exec().then((r) => r.results[0] || null),
+      __exec: exec,
+    };
+  };
+  return {
+    DB: {
+      prepare: (sql) => statement(sql, []),
+      batch: (stmts) => Promise.all(stmts.map((st) => st.__exec())),
+    },
+  };
+}
+
 /** Handles the request, or returns false so the static server can have it. */
 function handle(req, res, url) {
   if (url.pathname !== '/api/search') return false;
@@ -72,43 +100,24 @@ function handle(req, res, url) {
         if (values.length) filters[key] = values;
       }
 
-      const w = W.buildWhere(q, filters);
-      const rows = await run(
-        'SELECT ' + W.COLUMNS + ' FROM ' + w.from + w.sql +
-          ' ORDER BY ' + W.order(sort, !!w.match) + ' LIMIT ? OFFSET ?',
-        w.params.concat([limit, offset])
-      );
-      const totalRow = await run(
-        w.match && w.filterCount === 0
-          ? 'SELECT COUNT(*) AS n FROM books_fts WHERE books_fts MATCH ?'
-          : 'SELECT COUNT(*) AS n FROM ' + w.from + w.sql,
-        w.params
-      );
+      const env = devEnv();
+      const where = W.buildWhere(q, filters);
+      const rows = await W.page(env, where, sort, limit, offset);
+      const total = await W.count(env, where);
+      const facets = wantFacets ? await W.facetCounts(env, where, filters) : {};
 
-      const facets = {};
-      if (wantFacets) {
-        for (const key of Object.keys(W.FACET_SQL)) {
-          const fw = W.buildWhere(w.match, filters, key);
-          facets[key] = (
-            await run(
-              'SELECT ' + W.FACET_SQL[key] + ' AS v, COUNT(*) AS n FROM ' + fw.from + fw.sql +
-                " GROUP BY v HAVING v <> '' ORDER BY n DESC, v LIMIT 200",
-              fw.params
-            )
-          ).map((r) => ({ v: r.v, n: r.n }));
-        }
-      }
-
-      const body = JSON.stringify({ rows, total: (totalRow[0] && totalRow[0].n) || 0, facets });
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
         'access-control-allow-origin': '*',
         'cache-control': 'no-store',
       });
-      res.end(body);
+      res.end(JSON.stringify({ rows, total, facets }));
     })
     .catch((err) => {
-      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      res.writeHead(500, {
+        'content-type': 'application/json; charset=utf-8',
+        'access-control-allow-origin': '*',
+      });
       res.end(JSON.stringify({ error: String((err && err.message) || err) }));
     });
 

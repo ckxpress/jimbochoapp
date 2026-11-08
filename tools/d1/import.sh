@@ -47,6 +47,12 @@ if ! applied "schema"; then
   echo "schema" >> "$DONE"
 fi
 
+# Additive schema changes, every run. A database imported before a table
+# existed would otherwise never get it: "schema" is recorded as applied and
+# never revisited.
+echo "Migrations…"
+run tools/d1/migrate.sql
+
 echo "Data…"
 # Chunk filenames, in the order build-d1.js wrote them.
 node -e '
@@ -62,12 +68,11 @@ node -e '
 done
 
 # Indexes last: building them first would make every INSERT above maintain
-# them, across an import that is already many round trips.
-if ! applied "indexes"; then
-  echo "Indexes…"
-  run tools/d1/indexes.sql
-  echo "indexes" >> "$DONE"
-fi
+# them, across an import that is already many round trips. Run every time and
+# not recorded — they are CREATE INDEX IF NOT EXISTS, so repeating is free and
+# a later addition is not missed because an earlier run claimed "indexes".
+echo "Indexes…"
+run tools/d1/indexes.sql
 
 echo
 echo "Verifying…"
