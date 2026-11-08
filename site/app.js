@@ -106,6 +106,11 @@
    */
   function ensureSource() {
     if (sourcePrepared) return sourcePrepared;
+    // No backend chosen yet: load() picks one once the manifest is in, and
+    // until then there is nothing to prepare. Reachable because the sidebar's
+    // media-query listener calls ensureFacets() on any width change, which a
+    // reader can cause — or a rotation can — before the manifest has landed.
+    if (!source) return Promise.resolve();
     sourcePrepared = source.prepare().catch(function (err) {
       if (source === JsonSource) throw err;
       // Serving stale-but-correct data beats serving wrong data.
