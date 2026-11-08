@@ -947,11 +947,18 @@
       var span = Math.ceil(446090 / SLICES);
       var waits = 0;
 
-      /* Yields to the reader. An earlier version did not, and a search begun
-         two seconds after the warm started took 29.6 s on the live site —
-         no better than no warm at all — because its query sat in the worker
-         behind slices nobody was waiting for. Checking _pending first means
-         a reader waits for at most the one slice already submitted. */
+      /* Yields to the reader: a slice goes in only when nothing else is
+         waiting, so a reader who searches or scrolls mid-warm waits for at
+         most the slice already in flight.
+
+         Kept as a safeguard rather than a measured win. The run that
+         prompted it — focus, type for two seconds, search 政治 — took 29.6 s
+         with the warm starting on focus and 30.9 s after it was removed, so
+         the slices were not what made that search slow; it was slow because
+         it was the first, and nothing had been warmed yet. The yield still
+         holds where the earlier shape could genuinely have cost something:
+         the warm now runs while a reader scrolls a long result list, and
+         loadMore must not queue behind it. */
       function slice(i) {
         if (i >= SLICES) return Promise.resolve();
 
@@ -1748,10 +1755,14 @@
    * Called only after a search the database actually answered, never on the
    * way into one. Starting it when the search box was focused was measured
    * and dropped: eighteen requests do not finish in the seconds it takes to
-   * type, and the reader's own query ended up queued behind the slices —
-   * 政治 took 29.6 s that way, which is what it cost with no warm at all.
-   * So the first search of a session pays full price and every one after it
-   * does not.
+   * type, so by the time the reader searched, nothing had been warmed and
+   * the search cost what it always had (29.6 s for 政治 with the trigger,
+   * 30.9 s without it). The trigger bought nothing, so it went.
+   *
+   * The first search of a session therefore pays full price, and every one
+   * after it does not. Live, through a US-exit VPN: ~30 s for the first,
+   * 9–15 s for later ones. The spread is network noise, not the query — the
+   * same search varies by several seconds between runs.
    */
   function warmScoring() {
     if (!source || !source.warm) return;
