@@ -2,12 +2,16 @@ name = "jimbocho-search"
 main = "index.js"
 compatibility_date = "2026-10-01"
 
-# A custom domain, so the API is not on workers.dev. It is still a different
-# origin from jimbocho.app, so responses carry access-control-allow-origin; a
-# plain GET needs no preflight, so that one header is enough.
-routes = [
-  { pattern = "api.jimbocho.app", custom_domain = true }
-]
+# workers.dev to begin with, because deploying here needs only
+# Workers Scripts : Edit on the account — no zone permissions at all. The
+# custom domain below needs Workers Routes : Edit and Zone : Read on the
+# jimbocho.app zone, which is worth granting once this is proven rather than
+# before. Uncomment it then, and drop workers_dev.
+workers_dev = true
+
+# routes = [
+#   { pattern = "api.jimbocho.app", custom_domain = true }
+# ]
 
 # Created 8 Nov 2026 with `wrangler d1 create jimbocho-search --location apac`,
 # which reported region APAC. The id is an identifier, not a secret.

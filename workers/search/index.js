@@ -62,9 +62,10 @@ export default {
       const facets = wantFacets ? await facetCounts(env, where, filters) : {};
 
       return json({ rows, total, facets }, 200, {
-        // api.jimbocho.app and jimbocho.app are different origins. A plain GET
-        // with no custom headers needs no preflight, but the browser still
-        // discards the body without this.
+        // Whatever host this is deployed on — workers.dev while it is being
+        // proved, api.jimbocho.app later — it is a different origin from
+        // jimbocho.app. A plain GET with no custom headers needs no
+        // preflight, but the browser discards the body without this.
         'access-control-allow-origin': 'https://jimbocho.app',
         // Short, because the catalogue is rebuilt and the same URL must not
         // keep answering from yesterday's import for long. Long enough that a
