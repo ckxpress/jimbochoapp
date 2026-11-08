@@ -77,11 +77,11 @@
     var url = new URL((mf.db && mf.db.url) || ('data/' + mf.db.file), location.href).href;
     say('資料庫：' + url.split('/').pop() + '  (' + (mf.db.bytes / 1048576).toFixed(0) + ' MB)');
 
-    // Which Cloudflare edge, and is the object cached there. A MISS means every
-    // range is fetched from R2 instead of the nearby cache.
-    var head = await fetch(url, { headers: { Range: 'bytes=0-1023' } });
-    say('邊緣節點：' + (head.headers.get('cf-ray') || '—') +
-        '   快取：' + (head.headers.get('cf-cache-status') || '—'));
+    // cf-cache-status and cf-ray are not CORS-safelisted response headers, so
+    // script cannot read them from another origin however the request is made.
+    // Verified against the live bucket: only cache-control, content-length,
+    // content-range, content-type, etag and last-modified come through. The
+    // edge cache is therefore measured rather than asked about, in step ④.
     say('');
 
     // Offsets differ per pattern so nothing is answered from the browser cache.
@@ -122,6 +122,25 @@
     var worker = workerTotal / N;
     say('   每個請求 ' + ms(worker));
 
+    // Cloudflare holds a large object in segments and fetches a missing one
+    // from R2 on demand, so a range nobody has asked for lately costs far more
+    // than a neighbour already at the edge. Reading the same ranges twice
+    // separates the two: the browser cache is bypassed with no-store, so only
+    // the edge can have warmed between the passes.
+    say('④ 冷門段落 vs 已在邊緣的段落…');
+    r = ranges(4194304 + (Date.now() % 1024) * 65536, 11534336).slice(0, 6);
+    var pass = async function (list) {
+      var t0 = performance.now();
+      for (var k = 0; k < list.length; k++) {
+        await fetch(url, { headers: { Range: 'bytes=' + list[k][0] + '-' + list[k][1] }, cache: 'no-store' })
+          .then(function (x) { return x.arrayBuffer(); });
+      }
+      return (performance.now() - t0) / list.length;
+    };
+    var cold = await pass(r);
+    var warm = await pass(r);
+    say('   第一次 ' + ms(cold) + ' ／ 第二次 ' + ms(warm));
+
     say('');
     say('推算一次「冷」搜尋：');
     say('  現在（' + TODAY + ' 個逐一請求）        約 ' + secs(TODAY * worker));
@@ -131,8 +150,10 @@
     say('  若列資料改為同時請求        約 ' + secs(batched));
     say('  理論下限（' + FLOOR + ' 個請求）          約 ' + secs(FLOOR * worker));
     say('');
-    say('（① 與 ③ 的差距若很大，問題在 Worker；');
-    say('  ② 若遠快於 ①，同時請求就值得做。）');
+    say('（① 與 ③ 差距大 → 問題在 Worker；');
+    say('  ② 遠快於 ① → 同時請求值得做；');
+    say('  ④ 第二次遠快於第一次 → 問題是邊緣快取未命中，');
+    say('     應先處理 Cache Reserve，改程式無用。）');
   }
 })();
 </script>
