@@ -103,7 +103,7 @@ function handle(req, res, url) {
       const env = devEnv();
       const where = W.buildWhere(q, filters);
       const rows = await W.page(env, where, sort, limit, offset);
-      const total = await W.count(env, where);
+      const total = await W.count(env, where, filters);
       const facets = wantFacets ? await W.facetCounts(env, where, filters) : {};
 
       res.writeHead(200, {
@@ -111,7 +111,13 @@ function handle(req, res, url) {
         'access-control-allow-origin': '*',
         'cache-control': 'no-store',
       });
-      res.end(JSON.stringify({ rows, total, facets }));
+      res.end(JSON.stringify({
+        rows,
+        total: total.n,
+        totalExact: total.exact,
+        facetScan: W.FACET_SCAN_CAP,
+        facets,
+      }));
     })
     .catch((err) => {
       res.writeHead(500, {

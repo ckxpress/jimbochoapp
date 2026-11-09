@@ -26,7 +26,7 @@
  * which matters most exactly when something is wrong and the first question
  * is whether the fix is even live. The answer now comes back with every
  * response. */
-const VERSION = '2026-11-09a';
+const VERSION = '2026-11-09b';
 
 const PAGE_MAX = 60;
 
@@ -37,7 +37,16 @@ const FACET_LIMIT = 200;
    counts are a sample rather than a total, which the client shows with ≈.
    The alternative is reading every matching row of a broad query, eight
    times over, and billing says no. */
-const FACET_SCAN_CAP = 600;
+export const FACET_SCAN_CAP = 300;
+
+/* The hard ceiling on a live COUNT(*).
+ *
+ * An exact count of a broad filter is inherently as expensive as the filter
+ * is broad: 語言=中文 is 348,946 index entries read to print one number.
+ * Most of those counts are precomputed (see count() below); this bounds what
+ * is left, at the price of saying "20,000+" for a result set no reader is
+ * going to page to the end of anyway. */
+const COUNT_CAP = 20000;
 
 /* Mirrors SQL_FACET in site/schema.js — the client sends facet keys, and the
    mapping from key to column lives in one place on each side. */
@@ -58,9 +67,30 @@ export const COLUMNS =
   ' b.price, b.currency, b.forsale, b.cover';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname !== '/api/search') return json({ error: 'not found' }, 404);
+
+    /* A Worker's own response is not cached at the edge by its cache-control
+     * header the way an origin's would be — nothing is cached unless the
+     * Worker puts it there. Without this every reader who opens the same
+     * publisher, and every reader who hits the back button, pays full price
+     * in D1 row reads for a byte-identical answer. The response depends on
+     * the URL and nothing else: no cookies, no auth, one fixed CORS origin,
+     * so the URL is the whole key.
+     *
+     * Dormant on a workers.dev subdomain, where Cloudflare does not give the
+     * Cache API a cache: these calls are no-ops and every request pays. It
+     * starts working the day this moves to a route on the jimbocho.app zone,
+     * and until then the header below says `x-cache: miss` honestly, every
+     * time. Written now because the alternative is remembering later. */
+    const cache = caches.default;
+    const hit = await cache.match(request).catch(() => null);
+    if (hit) {
+      const r = new Response(hit.body, hit);
+      r.headers.set('x-cache', 'hit');
+      return r;
+    }
 
     try {
       const q = (url.searchParams.get('q') || '').trim();
@@ -78,15 +108,31 @@ export default {
 
       const where = buildWhere(q, filters);
       const rows = await page(env, where, sort, limit, offset);
-      const total = await count(env, where);
+      const total = await count(env, where, filters);
       const facets = wantFacets ? await facetCounts(env, where, filters) : {};
 
-      return json({ rows, total, facets, v: VERSION }, 200, {
-        // Short, because the catalogue is rebuilt and the same URL must not
-        // keep answering from yesterday's import for long. Long enough that a
-        // reader paging through one result set is not re-querying each time.
-        'cache-control': 'public, max-age=60',
-      });
+      const res = json(
+        // facetScan so the client marks ≈ at the cap the API actually used.
+        // The file backend has its own, larger cap: reading 600 rows is
+        // cheap there and expensive here, and a client that assumed one
+        // number for both would mark the wrong counts approximate.
+        { rows, total: total.n, totalExact: total.exact, facetScan: FACET_SCAN_CAP, facets, v: VERSION },
+        200,
+        {
+          // Short, because the catalogue is rebuilt and the same URL must not
+          // keep answering from yesterday's import for long. Long enough that
+          // a reader paging through one result set is not re-querying each
+          // time.
+          'cache-control': 'public, max-age=300',
+          'x-cache': 'miss',
+        }
+      );
+      // Not awaited: the reader should not wait on the cache write, and on
+      // a workers.dev subdomain it will not succeed at all.
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(cache.put(request, res.clone()).catch(() => {}));
+      }
+      return res;
     } catch (err) {
       return json({ error: String(err && err.message || err), v: VERSION }, 500);
     }
@@ -149,14 +195,91 @@ export async function page(env, where, sort, limit, offset) {
   return res.results || [];
 }
 
-export async function count(env, where) {
+/**
+ * Sum the precomputed counts for some values of one facet, or null.
+ *
+ * Null means "not all of them were there", and the caller must count live —
+ * never a partial sum, which would look like an answer and be wrong. The
+ * table keeps the top 200 values per scope, so what goes missing is the long
+ * tail, which is the cheap end to count anyway.
+ */
+async function sumFacet(env, scope, facet, values) {
+  const holes = values.map(() => '?').join(',');
+  const hit = await env.DB.prepare(
+    'SELECT COUNT(*) AS found, SUM(n) AS n FROM facet_counts' +
+    ' WHERE scope = ? AND facet = ? AND value IN (' + holes + ')'
+  ).bind(scope, facet, ...values).first();
+  if (!hit || hit.found !== values.length) return null;
+  return hit.n || 0;
+}
+
+/**
+ * How many records match — read rather than counted wherever possible.
+ *
+ * COUNT(*) has no shortcut: counting 語言=中文 exactly means reading all
+ * 348,946 index entries, and D1 bills rows read. Two page views of a broad
+ * filter cost more than the whole day's free allowance is worth spending on
+ * a number printed above the grid.
+ *
+ * But the build already counted these. facet_counts holds n per value of
+ * every facet, and a facet's values are disjoint — each record has exactly
+ * one publisher, one language, one year — so for a request filtered on a
+ * single facet the total is the sum of those rows, exact, for one read.
+ *
+ * The table keeps only the top 200 values per facet, which sounds like a gap
+ * and is not: the values it leaves out are the rare ones, and a rare value is
+ * precisely the one that is cheap to count live. The expensive values are
+ * always present, because expensive means many records means top 200.
+ *
+ * Returns { n, exact }. Inexact means the live count hit COUNT_CAP.
+ */
+export async function count(env, where, filters) {
+  const keys = filters ? Object.keys(filters) : [];
+
+  // Nothing narrowing it at all: the whole catalogue. COUNT(*) on books is
+  // 446,090 rows read for a number that never changes between imports, and
+  // every dataset's count is already sitting in facet_counts — sixteen rows,
+  // and they are complete, because every record belongs to exactly one.
+  if (!where.match && keys.length === 0) {
+    const all = await env.DB.prepare(
+      "SELECT SUM(n) AS n FROM facet_counts WHERE scope = '' AND facet = 'dataset'"
+    ).first();
+    if (all && all.n) return { n: all.n, exact: true };
+  }
+
+  if (!where.match && keys.length === 1) {
+    const hit = await sumFacet(env, '', keys[0], filters[keys[0]]);
+    if (hit !== null) return { n: hit, exact: true };
+  }
+
+  // Two facets, and the build also counted each facet *within* each value of
+  // every other one — scope 'language:zh', facet 'year', value '2024' is
+  // 85,102. So 語言=中文 + 出版年份=2024 is one read rather than the 85,102
+  // the live count would have to look at before it could say the number.
+  // Either facet can play the scope; it has to hold a single value to be one.
+  if (!where.match && keys.length === 2) {
+    for (const [scopeKey, listKey] of [[keys[0], keys[1]], [keys[1], keys[0]]]) {
+      if (filters[scopeKey].length !== 1) continue;
+      const hit = await sumFacet(
+        env, scopeKey + ':' + filters[scopeKey][0], listKey, filters[listKey]
+      );
+      if (hit !== null) return { n: hit, exact: true };
+    }
+  }
+
   // Counting the FTS table alone where nothing else narrows it: joining books
   // would visit a row per match for a number the index already knows.
-  const sql = where.match && where.filterCount === 0
-    ? 'SELECT COUNT(*) AS n FROM books_fts WHERE books_fts MATCH ?'
-    : 'SELECT COUNT(*) AS n FROM ' + where.from + where.sql;
-  const res = await env.DB.prepare(sql).bind(...where.params).first();
-  return (res && res.n) || 0;
+  const inner = where.match && where.filterCount === 0
+    ? 'SELECT 1 FROM books_fts WHERE books_fts MATCH ?'
+    : 'SELECT 1 FROM ' + where.from + where.sql;
+  // The LIMIT is inside the subquery so it bounds rows *read*, not just rows
+  // returned — SQLite stops the scan once it has that many. One over the cap,
+  // so the result says whether there were more.
+  const res = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM (' + inner + ' LIMIT ' + (COUNT_CAP + 1) + ')'
+  ).bind(...where.params).first();
+  const n = (res && res.n) || 0;
+  return n > COUNT_CAP ? { n: COUNT_CAP, exact: false } : { n, exact: true };
 }
 
 /**

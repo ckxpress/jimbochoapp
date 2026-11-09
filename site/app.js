@@ -52,6 +52,9 @@
   var sourcePrepared = null; // the open-the-backend promise, created once
   var searchingTimer = null; // delays the skeleton so a fast query cannot flash it
   var totalResults = 0;
+  /* False when the API capped the count rather than paying for an exact
+     one. Only the search API sets it; the file backend always counts. */
+  var totalExact = true;
   var source = null; // JsonSource or SqliteSource, chosen by the manifest
   var renderToken = 0; // guards against out-of-order async renders
   var covers = localStorage.getItem('covers') !== 'off';
@@ -882,7 +885,12 @@
       return ApiSource.query({ offset: offset, limit: limit, facets: wantFacets })
         .then(function (data) {
           if (wantFacets) ApiSource._facets = unpackFacets(data.facets || {});
-          return { rows: data.rows.map(mapSqlRow), total: data.total };
+          if (data.facetScan) ApiSource._scan = data.facetScan;
+          return {
+            rows: data.rows.map(mapSqlRow),
+            total: data.total,
+            exact: data.totalExact !== false,
+          };
         });
     },
 
@@ -1715,6 +1723,7 @@
       setSearching(false);
       results = pre.rows.map(mapSqlRow);
       totalResults = pre.total;
+      totalExact = true;
       renderCount();
       renderChips();
       renderGrid(false);
@@ -1737,6 +1746,7 @@
         setSearching(false);
         results = data.rows.map(mapSqlRow);
         totalResults = data.total;
+        totalExact = true;
         renderCount();
         renderChips();
         renderGrid(false);
@@ -1761,6 +1771,7 @@
         setSearching(false);
         results = res.rows;
         totalResults = res.total;
+        totalExact = res.exact !== false;
         renderCount();
         renderChips();
         renderGrid(false);
@@ -1892,10 +1903,21 @@
       })
       .then(function (res) {
         SqliteSource._busy = false;
-        if (token !== renderToken || !res.rows.length) return;
+        if (token !== renderToken) return;
+        // A capped total keeps the button visible past the number, because
+        // the number is a floor rather than the end. An empty page is the
+        // end, and the only signal there is.
+        if (!res.rows.length) {
+          totalResults = results.length;
+          totalExact = true;
+          el.more.hidden = true;
+          renderCount();
+          return;
+        }
         var start = results.length;
         results = results.concat(res.rows);
         totalResults = res.total;
+        totalExact = res.exact !== false;
         renderGrid(true, start);
       })
       .catch(function () {
@@ -1917,10 +1939,13 @@
    * reader of a union catalogue would expect.
    */
   function renderCount() {
+    // "20,000+" rather than "20,000": past the cap the API stops counting
+    // instead of reading every matching row for a number no one scrolls to.
+    var n = fmt(totalResults) + (totalExact ? '' : '+');
     el.count.innerHTML =
-      totalResults === totalBooks
+      totalResults === totalBooks && totalExact
         ? '共 <strong>' + fmt(totalBooks) + '</strong> 筆書目'
-        : '<strong>' + fmt(totalResults) + '</strong> 筆（全部 ' + fmt(totalBooks) + ' 筆書目）';
+        : '<strong>' + n + '</strong> 筆（全部 ' + fmt(totalBooks) + ' 筆書目）';
   }
 
   function renderGrid(append, from) {
@@ -1951,7 +1976,7 @@
     });
     el.grid.appendChild(frag);
 
-    el.more.hidden = results.length >= totalResults;
+    el.more.hidden = totalExact && results.length >= totalResults;
     el.empty.hidden = totalResults !== 0;
     if (!totalResults) {
       // A search for an English title finds nothing while the default Chinese
@@ -2530,7 +2555,7 @@
     // more honest than either pretending or paying for the real figure.
     if (facetsAreSampled()) {
       n.textContent = '≈' + fmt(entry.count);
-      n.title = '約數：此搜尋的篩選數字取自前 ' + fmt(FACET_SCAN_CAP) + ' 筆結果';
+      n.title = '約數：此搜尋的篩選數字取自前 ' + fmt(facetScanCap()) + ' 筆結果';
     } else {
       n.textContent = fmt(entry.count);
     }
@@ -2550,7 +2575,27 @@
    * Browsing is never sampled — those counts are precomputed over everything.
    */
   function facetsAreSampled() {
+    // On the API backend any narrowed facet is counted over the first
+    // facetScan matches, filters included — not only text searches. The old
+    // test asked about state.q because on the file backend browsing really is
+    // precomputed over everything, and on that backend it still is.
+    if (source === ApiSource && ApiSource._scan) {
+      return totalResults > ApiSource._scan && (!!matchExpression(state.q) || hasFilters());
+    }
     return !!(state.q && matchExpression(state.q) && totalResults > FACET_SCAN_CAP);
+  }
+
+  /** Any facet filter active at all. */
+  function hasFilters() {
+    return Object.keys(state.filters).some(function (key) {
+      var set = state.filters[key];
+      return !!(set && set.size);
+    });
+  }
+
+  /** The cap the backend in use actually counted facets over. */
+  function facetScanCap() {
+    return (source === ApiSource && ApiSource._scan) || FACET_SCAN_CAP;
   }
 
   /** The comparator a facet asked for, or null to leave it by count. */
