@@ -1541,20 +1541,37 @@
     return out;
   }
 
+  /**
+   * Undo HTML escaping a source applied before we ever saw the text.
+   *
+   * 30 titles read "&lt;&lt;街頭巷尾&gt;&gt;咖啡小日曆" because that is how
+   * the National Library's holdings records spell "<<街頭巷尾>>咖啡小日曆",
+   * and nothing on the way in undid it. The importer does now — but the
+   * database in R2 was built before that, so decoding here is what makes the
+   * records already published read correctly. Once a rebuild has been
+   * through, this finds nothing to do and costs an indexOf('&') per field.
+   *
+   * Safe against a title that genuinely contains a "<": every one of these
+   * goes through highlight(), which escapes before it writes any HTML.
+   */
+  function deco(value) {
+    return typeof decodeEntities === 'function' ? decodeEntities(value) : value || '';
+  }
+
   function mapSqlRow(r) {
     var row = {
       id: r.id,
       _ds: r.dataset,
-      title: r.title,
-      subtitle: r.subtitle,
-      authors: r.authors ? String(r.authors).split(', ') : [],
-      publisher: r.publisher,
+      title: deco(r.title),
+      subtitle: deco(r.subtitle),
+      authors: r.authors ? String(r.authors).split(', ').map(deco) : [],
+      publisher: deco(r.publisher),
       year: r.year,
       isbn: r.isbn,
       classification: r.classification,
       language: r.language,
-      series: r.series,
-      parallelTitle: r.parallel_title || '',
+      series: deco(r.series),
+      parallelTitle: deco(r.parallel_title || ''),
       ref: r.ref,
       src: r.src,
       cover: r.cover || '',
@@ -1619,15 +1636,44 @@
     }
   }
 
+  /**
+   * deco() over every string in a tree, in place.
+   *
+   * The detail view needs this and the grid does not, because the grid shows
+   * the columns of `books` and the detail view also shows the deflated `doc`
+   * — and the escaping is in there too: the record behind
+   * 《街頭巷尾》咖啡小日曆 carries "&lt;&lt;街頭巷尾&gt;&gt;咖啡小日曆." as
+   * its raw catalogued title, several levels down.
+   *
+   * Run on the doc alone, before anything from the manifest is attached to
+   * it. The manifest's dataset objects are shared by every record on the
+   * page, and walking into one would rewrite it for all of them.
+   */
+  function decodeDeep(node, depth) {
+    if (!node || depth > 8) return node;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) {
+        node[i] = typeof node[i] === 'string' ? deco(node[i]) : decodeDeep(node[i], depth + 1);
+      }
+      return node;
+    }
+    if (typeof node !== 'object') return node;
+    Object.keys(node).forEach(function (key) {
+      var v = node[key];
+      node[key] = typeof v === 'string' ? deco(v) : decodeDeep(v, depth + 1);
+    });
+    return node;
+  }
+
   function mergeRecord(r, doc) {
-    var rec = doc || {};
+    var rec = decodeDeep(doc || {}, 0);
 
     rec.id = r.id;
     rec.dataset = r.dataset;
-    rec.title = r.title;
-    rec.subtitle = r.subtitle;
-    rec.parallelTitle = r.parallel_title || '';
-    rec.publisher = r.publisher;
+    rec.title = deco(r.title);
+    rec.subtitle = deco(r.subtitle);
+    rec.parallelTitle = deco(r.parallel_title || '');
+    rec.publisher = deco(r.publisher);
     rec.year = r.year;
     rec.isbn = r.isbn;
     rec.classification = r.classification;
@@ -1643,10 +1689,12 @@
 
     if (!rec.authors) {
       rec.authors = r.authors
-        ? String(r.authors).split(', ').map(function (n) { return { name: n, display: n }; })
+        ? String(r.authors).split(', ').map(function (n) {
+            return { name: deco(n), display: deco(n) };
+          })
         : [];
     }
-    if (!rec.series && r.series) rec.series = { title: r.series, raw: r.series };
+    if (!rec.series && r.series) rec.series = { title: deco(r.series), raw: deco(r.series) };
     if (!rec.price && typeof r.price === 'number') {
       rec.price = { amount: r.price, currency: r.currency || '' };
     }

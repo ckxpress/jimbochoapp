@@ -210,8 +210,13 @@ function checkDigit13(core12) {
   return String((10 - (sum % 10)) % 10);
 }
 
+/* One implementation, two consumers, as with the tokenizer. */
+const { decodeEntities } = require('../../site/entities.js');
+
 function clean(value) {
-  return String(value === undefined || value === null ? '' : value)
+  // Decoding before the whitespace collapse, so that a &nbsp; or &#10; is
+  // whitespace by the time the collapse runs rather than afterwards.
+  return decodeEntities(String(value === undefined || value === null ? '' : value))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -246,6 +251,7 @@ module.exports = {
   isbn10to13,
   isbn13to10,
   clean,
+  decodeEntities,
   trimEnd,
   compact,
   DERIVED,
