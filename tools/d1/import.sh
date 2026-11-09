@@ -74,16 +74,19 @@ done
 echo "Indexes…"
 run tools/d1/indexes.sql
 
-# Statistics, every run, and allowed to fail. Without them SQLite assumes
-# every indexed lookup yields about ten rows and picks whichever usable index
-# it meets first — which on a two-filter query meant reading 349,000 index
-# entries to return four. It is one statement and it is not worth aborting an
-# otherwise finished import over, if this D1 will not run it.
-echo "Statistics…"
-if ! run tools/d1/analyze.sql; then
-  echo "  ! ANALYZE failed. The import is fine, but the planner has no" >&2
-  echo "    statistics and multi-filter queries will read far more rows" >&2
-  echo "    than they need to. Worth looking into." >&2
+# Statistics once, not every run: ANALYZE walks every index, which on this
+# database is millions of rows read, and a free D1 is allowed five million a
+# day. Recorded like a chunk, and a full re-import drops the schema and
+# clears this file, so a rebuilt database analyses itself again.
+if ! applied "analyze"; then
+  echo "Statistics…"
+  if run tools/d1/analyze.sql; then
+    echo "analyze" >> "$DONE"
+  else
+    echo "  ! ANALYZE failed. The import is fine, but the planner has no" >&2
+    echo "    statistics and multi-filter queries will read far more rows" >&2
+    echo "    than they need to. Worth looking into." >&2
+  fi
 fi
 
 echo
