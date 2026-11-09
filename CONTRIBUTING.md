@@ -1,7 +1,7 @@
 # Contributing to 神保町 · jimbocho.app
 
-A static catalogue of Hong Kong and Taiwan book metadata — **309,418 books**
-across 14 datasets as of 6 November 2026, aiming eventually at every book
+A static catalogue of Hong Kong and Taiwan book metadata — **446,090 books**
+across 16 datasets as of 6 November 2026, aiming eventually at every book
 published in both places.
 
 No framework, no npm dependencies, no build step for the site itself. Every
@@ -25,7 +25,7 @@ npm start
 ```
 
 This is the only way to work on the project from a tablet: the catalogue cannot
-be built on iPadOS — no Node, no sqlite3, and a `VACUUM` over a 441 MB database.
+be built on iPadOS — no Node, no sqlite3, and a `VACUUM` over a 496 MB database.
 
 ### Locally
 
@@ -39,7 +39,7 @@ Node 12+ and, for database work, `sqlite3` built with FTS5 (`apt install
 sqlite3`; macOS ships one).
 
 `npm start` needs no build. The committed manifest points at the published
-database in R2, which is public, so the site comes up with all 309,418 books
+database in R2, which is public, so the site comes up with all 446,090 books
 and you can work on the interface immediately.
 
 ### Working on the data
@@ -78,8 +78,8 @@ the same search is **0.9 s** once the edge holds those ranges. It is the
 difference between having a cache and not having one, not a few hundred
 milliseconds.
 
-The database is 441.3 MB. That leaves about 45,000 more books. The next lever
-is deflating the `docs` blob (~441 → ~360 MB), which browsers inflate natively
+The database is 496.2 MB. That leaves about 14,000 more books. The next lever
+is deflating the `docs` blob (~496 → ~400 MB), which browsers inflate natively
 with `DecompressionStream`.
 
 ### 2. The published site must stay small
@@ -89,9 +89,9 @@ deployments will timeout if they take longer than 10 minutes." A 462 MB deploy
 failed at 10m14s and the site silently kept serving the previous build.
 
 So `tools/deploy.sh` and `tools/publish-dir.sh` withhold the `*.full.*.json`
-shards — 369 MB that a working site never fetches. They exist for the JSON
+shards — 500 MB that a working site never fetches. They exist for the JSON
 fallback's detail view and for the build and cover scripts, which read them
-from the repository rather than over HTTP. The published site is 93 MB.
+from the repository rather than over HTTP. The published site is 153 MB.
 
 If you add data, check what the deploy prints: `publishing N files, M MB`.
 

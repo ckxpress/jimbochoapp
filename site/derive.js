@@ -8,7 +8,7 @@
  * say so rather than passing them off as the publisher's own words.
  *
  * Why this file exists at all: stored, they were 377 of the 1,240 bytes each
- * record cost in the `docs` table — about 117 MB across 309,418 books, in a
+ * record cost in the `docs` table — about 168 MB across 446,090 books, in a
  * database that has to stay under Cloudflare's 512 MB cacheable ceiling. They
  * are a pure function of fields the browser already has, so the browser
  * computes them and the database does not carry them. Shared rather than
