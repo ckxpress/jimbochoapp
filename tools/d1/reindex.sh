@@ -46,9 +46,21 @@ step() {
   echo "$name" >> "$DONE"
 }
 
-echo "Building the replacement indexes. Each carries the cover expression the"
+# Statistics first, because this is the step that stops the bleeding and it
+# is the cheapest one: no index is built, and SQLite only walks what is
+# already there. Without statistics the planner assumes every indexed lookup
+# yields about ten rows and uses whichever usable index it meets first, which
+# is how one view of a two-filter page came to read 2.79 million rows. With
+# them it picks the selective column and reads four.
+echo "Statistics, before anything else — this is the step that stops the burn."
+echo
+step analyze_now "ANALYZE;"
+
+echo
+echo "Now the replacement indexes. Each carries the cover expression the"
 echo "browse ORDER BY starts with, so a filtered page stops reading at 18 rows"
-echo "instead of sorting every match."
+echo "instead of sorting every match. Stop after any step that reports a"
+echo "number near the daily allowance — re-running resumes where you left off."
 echo
 step browse_publisher "CREATE INDEX IF NOT EXISTS idx_browse_publisher ON books(publisher, cover = '', zh_first, title_display);"
 step browse_year      "CREATE INDEX IF NOT EXISTS idx_browse_year ON books(year, cover = '', zh_first, title_display);"
@@ -65,10 +77,10 @@ step drop_year        "DROP INDEX IF EXISTS idx_year;"
 step drop_lang        "DROP INDEX IF EXISTS idx_language;"
 
 echo
-echo "Statistics. Without these SQLite assumes every indexed lookup yields"
-echo "about ten rows and picks whichever usable index it meets first, which"
-echo "is how one page view came to read 2.79 million rows."
-step analyze          "ANALYZE;"
+echo "Statistics again: the first run described the old indexes, and the"
+echo "planner cannot choose the new ones well on figures for indexes that no"
+echo "longer exist."
+step analyze_again    "ANALYZE;"
 
 echo
 echo "Done. Check a plan is what you expect:"
