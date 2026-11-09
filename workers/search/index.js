@@ -17,6 +17,17 @@
  * Here the query runs beside the data, so a search is one round trip.
  */
 
+/* Bumped by hand whenever this file changes.
+ *
+ * The Worker is deployed by pasting this file into the dashboard editor,
+ * because `wrangler deploy` needs permissions the D1 token deliberately does
+ * not carry. A paste leaves no deployment record and no version, so there was
+ * no way to tell whether what is running is what is in the repository —
+ * which matters most exactly when something is wrong and the first question
+ * is whether the fix is even live. The answer now comes back with every
+ * response. */
+const VERSION = '2026-11-09a';
+
 const PAGE_MAX = 60;
 
 /* How many values of one facet to return — the same cap the client holds. */
@@ -70,14 +81,14 @@ export default {
       const total = await count(env, where);
       const facets = wantFacets ? await facetCounts(env, where, filters) : {};
 
-      return json({ rows, total, facets }, 200, {
+      return json({ rows, total, facets, v: VERSION }, 200, {
         // Short, because the catalogue is rebuilt and the same URL must not
         // keep answering from yesterday's import for long. Long enough that a
         // reader paging through one result set is not re-querying each time.
         'cache-control': 'public, max-age=60',
       });
     } catch (err) {
-      return json({ error: String(err && err.message || err) }, 500);
+      return json({ error: String(err && err.message || err), v: VERSION }, 500);
     }
   },
 };
