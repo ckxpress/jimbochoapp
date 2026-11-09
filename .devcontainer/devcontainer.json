@@ -7,7 +7,11 @@
   // shells out to.
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
 
-  "postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 rclone && sqlite3 :memory: \"CREATE VIRTUAL TABLE t USING fts5(x); SELECT 1;\" > /dev/null && echo \"sqlite3 $(sqlite3 --version | cut -d' ' -f1) with FTS5 · node $(node -v) · rclone ready\"",
+  // One setup path, shared with any other cloud environment, rather than a
+  // second copy of it inline here. It also checks FTS5 harder than this line
+  // used to: `CREATE VIRTUAL TABLE` succeeding does not prove a MATCH works,
+  // and MATCH is what the search index is.
+  "postCreateCommand": "bash .claude/setup.sh",
 
   // 8080 is tools/serve.js. Codespaces forwards it to a URL that works in
   // Safari on an iPad, which is the point of this file: the catalogue cannot be
@@ -18,9 +22,17 @@
     "8080": { "label": "神保町 dev server", "onAutoForward": "notify" }
   },
 
-  // 16 GB of disk is not enough to be careless with: a build writes the 441 MB
-  // database and VACUUM needs room for a second copy, on top of ~1.2 GB of
-  // JSON shards in the working tree.
+  // A floor, not a request: GitHub only offers machine types that meet or
+  // exceed it. Kept at 32gb because a build writes a ~500 MB database and
+  // VACUUM needs room for a second copy, on top of a working tree that is
+  // already 668 MB of tracked files and 203 MB of .git.
+  //
+  // This appears to cost contributors nothing — 32 GB looks like the standard
+  // Linux machine's disk (GitHub's own CLI example names it
+  // `standardLinux32gb`) — but GitHub does not publish a table of storage per
+  // machine type, so that is inference. If the 2-core option ever shows
+  // "Below dev container requirements" on the creation screen, this line is
+  // the reason, and someone who only wants `npm start` does not need it.
   "hostRequirements": { "storage": "32gb" },
 
   "customizations": {
