@@ -1,18 +1,20 @@
 # 神保町 · jimbocho.app
 
 A static site for browsing and searching book metadata from Hong Kong and
-Taiwan — **309,418 books** across 14 datasets, aiming eventually at every book
+Taiwan — **446,090 books** across 16 datasets, aiming eventually at every book
 published in both places.
 
 | | |
 |---|---|
 | 臺灣出版新書預告書訊 | 169,808 books, 2024–2026 |
 | 香港印刷書刊目錄 | 118,422 books, 2017–2026 |
+| 國家圖書館館藏書目資訊 | 118,153 books |
 | Open Library (pre-2017 Hong Kong) | 21,188 books |
-| with a real cover | 56,509 (18%) |
-| database | 441.3 MB, queried by byte range |
+| 全國圖書書目資訊網 NBINet 圖書聯合目錄 | 18,519 books |
+| with a real cover | 56,509 (13%) |
+| database | 496.2 MB, queried by byte range |
 
-Chinese 248,455 · English 59,727 · nine languages in all.
+Chinese 348,946 · English 59,727 · ten languages in all.
 
 No framework, no npm dependencies, no server. A Node script imports datasets and
 the browser does the rest — reading plain JSON, or querying a SQLite database by
@@ -47,7 +49,7 @@ Chinese and English volumes, and 25,468 of the English records carry the Chinese
 form of their title as a parallel title, so that form is displayed and the other
 language is shown beneath it. Title ordering groups Chinese ahead of Latin —
 otherwise the 46,755 Latin-first titles sort ahead of everything in any standard
-collation. A fresh visit opens on the 248,455 Chinese-language records, with
+collation. A fresh visit opens on the 348,946 Chinese-language records, with
 English — 59,727 of them — a click away in
 the Language filter; a search that finds nothing because of it offers to search
 every language.
@@ -102,7 +104,7 @@ data for the ones that resolve. Results are cached in `cache/covers.json`
 (committed — it represents 538,066 requests), so re-runs only probe what is new.
 `npm run build` does it as part of the pipeline.
 
-**56,509 of 309,418 records have a real cover — 18%.** The rest get a generated cover built from the title and a
+**56,509 of 446,090 records have a real cover — 13%.** The rest get a generated cover built from the title and a
 colour seeded by the record id, so every book shows something and nothing
 renders broken.
 
@@ -286,7 +288,7 @@ this week's `manifest.json` would break the page in a way an ordinary visitor
 has no way to clear. So every request tries the network first and falls back to
 the cache after four seconds or on failure. The cache is there for the MTR
 tunnel, not for speed. Verified: with the dev server stopped outright, the app
-still opens and renders all 309,418 books.
+still opens and renders all 446,090 books.
 
 Only same-origin requests are cached. Cover thumbnails come from Google and
 arrive as opaque responses, which some browsers charge several megabytes each
@@ -371,7 +373,7 @@ That runs the import and then the database build. `npm run build:db` alone
 rebuilds only the database.
 
 **`site/data/books.db` is not committed.** It is derived from the shards, it is
-~45 MB, and git would keep every rebuild of it forever. Run `npm run build:db`
+496 MB, and git would keep every rebuild of it forever. Run `npm run build:db`
 to produce it locally; the deploy only publishes what is committed, so the
 database is absent from the published site until you host it deliberately —
 which for a catalogue large enough to need it means object storage anyway, not
@@ -381,7 +383,7 @@ anything. Delete `books.db` and remove the `db` key from the manifest to go
 back to the JSON path.
 
 Measured in 2026 on a 10,912-record catalogue, which is why the JSON path wins
-here and no longer does — the catalogue is now 309,418 books and the SQLite
+here and no longer does — the catalogue is now 446,090 books and the SQLite
 backend is what ships:
 
 | | JSON shards | SQLite |

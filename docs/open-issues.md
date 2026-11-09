@@ -109,20 +109,20 @@ service.
 
 **Labels:** `performance`, `blocked`
 
-The database is 441.3 MB against Cloudflare's 512 MB cacheable ceiling. Past
+The database is 496.2 MB against Cloudflare's 512 MB cacheable ceiling. Past
 that ceiling every range request is answered from origin with
 `cf-cache-status: BYPASS`, and the difference is not subtle: the same search
 took ~46 s for every reader at 729 MB and **0.9 s** at 441 MB once the edge
 holds the ranges.
 
-That leaves about **70 MB, or roughly 45,000 books** — one more year of Taiwan
-imports. `docs` has already been reduced from the whole record to only the
-fields `books` does not hold, and the derived description and copyright are
-computed in the browser rather than stored.
+That leaves about **15 MB, or roughly 14,000 books** — not even a quarter of a
+year of Taiwan imports. `docs` has already been reduced from the whole record
+to only the fields `books` does not hold, and the derived description and
+copyright are computed in the browser rather than stored.
 
 The next lever is compressing the blob. Measured on a 5,000-record sample,
 deflate takes it from 480 to about 272 bytes a row, which would put the
-database near 360 MB. Browsers can inflate it natively with
+database near 400 MB. Browsers can inflate it natively with
 `DecompressionStream('deflate')`, so no library is needed.
 
 Things to work out:

@@ -15,7 +15,7 @@
 
   // 8080 is tools/serve.js. Codespaces forwards it to a URL that works in
   // Safari on an iPad, which is the point of this file: the catalogue cannot be
-  // built on iPadOS — no Node, no sqlite3, and a VACUUM over a 441 MB database
+  // built on iPadOS — no Node, no sqlite3, and a VACUUM over a 496 MB database
   // — so the machine lives in the cloud and the tablet is the terminal.
   "forwardPorts": [8080],
   "portsAttributes": {
