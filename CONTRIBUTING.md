@@ -42,6 +42,33 @@ sqlite3`; macOS ships one).
 database in R2, which is public, so the site comes up with all 309,418 books
 and you can work on the interface immediately.
 
+### A smaller clone (site work only)
+
+The 156 `site/data/*.full.*.json` shards are 477 MiB of a 769 MiB clone, and
+nothing that runs the site reads them — `tools/publish-dir.sh` strips them from
+every deploy. A blobless partial clone plus sparse-checkout never fetches them:
+
+```bash
+git clone --filter=blob:none --no-checkout https://github.com/ckxpress/jimbochoapp.git
+cd jimbochoapp
+git sparse-checkout set --no-cone '/*' '!/site/data/*.full.*.json'
+git checkout
+```
+
+Measured on 6355938, 9 November 2026: **37.9 MiB transferred and 229 MiB on
+disk, against 100.1 MiB and 769 MiB for a plain `git clone`.** All 113 commits
+are there, the shards stay tracked, and `npm start` works unchanged. Most of
+that is a disk saving rather than a bandwidth one — the shards are JSON and
+pack at 9.7:1, so they account for only 49 MiB of the transfer.
+(`--filter=blob:none` needs server-side filtering, which GitHub supports.)
+
+Run `git sparse-checkout disable` to fill the clone in — about ten seconds and
+the remaining 50 MiB — if you are building the catalogue, since
+`npm run build:db` reads the shards, or working on the book page: on localhost
+the site runs in JSON-shard mode, because the R2 bucket's CORS policy allows
+only `https://jimbocho.app`, and a detail page then shows the index row's 8
+fields instead of all 17.
+
 ### Working on the data
 
 ```bash
