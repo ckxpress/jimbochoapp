@@ -7,11 +7,24 @@
 # D1 bills rows written as well as rows read, and the free plan allows
 # 100,000 writes a day against 5,000,000 reads. Cloudflare's pricing page
 # says DDL "may contribute to a mix of read rows and write rows" and does not
-# say how much, so whether building one index over 446,090 rows costs 446,090
-# writes or something far smaller is not documented — it is measurable. Each
-# step below prints what it actually cost, so the next one is a decision
-# rather than a gamble. If a step reports a number near the daily allowance,
-# stop and continue tomorrow; the script is resumable.
+# say how much, so this script measures it. Measured once, on 446,090 rows:
+#
+#   ANALYZE              7,807,450 read        16 written
+#   each browse index      ~902,000 read   446,091 written
+#   idx_facet_value         193,905 read    95,751 written
+#   DROP INDEX                  ~60 read         1 written
+#   ANALYZE again        8,891,129 read        16 written
+#   ------------------------------------------------------
+#   whole migration     21,407,131 read 2,326,242 written
+#
+# That is 4.3 days of the free read allowance and 23 days of the write
+# allowance, so running this is a decision about the whole day, not a step
+# you can stop partway: the FIRST step already exceeds a day's reads. Expect
+# D1 to refuse queries until the next 00:00 UTC, and take the site off the
+# search API before you start.
+#
+# Each step still prints its own cost, because the figures above are one
+# measurement of one database and the next one will differ.
 #
 # Usage: sh tools/d1/reindex.sh <database-name>
 set -eu
@@ -31,7 +44,18 @@ step() {
     return 0
   fi
   echo "→ $name"
-  out=$(npx wrangler d1 execute "$DB_NAME" --remote --yes --json --command "$sql")
+  # stderr is kept and reprinted on failure. Without this the command
+  # substitution discards wrangler's own diagnostics and `set -e` kills the
+  # script in silence — which is exactly how the first run of it behaved,
+  # leaving no clue whether the cause was credentials, quota or the network.
+  err="${TMPDIR:-/tmp}/reindex.$$.err"
+  if ! out=$(npx wrangler d1 execute "$DB_NAME" --remote --yes --json --command "$sql" 2>"$err"); then
+    echo "   ✗ wrangler failed on $name — nothing recorded, so a re-run retries it:" >&2
+    sed 's/^/     /' "$err" >&2
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
   # meta.rows_read / meta.rows_written is what the bill is made of.
   printf '%s' "$out" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
@@ -46,12 +70,15 @@ step() {
   echo "$name" >> "$DONE"
 }
 
-# Statistics first, because this is the step that stops the bleeding and it
-# is the cheapest one: no index is built, and SQLite only walks what is
-# already there. Without statistics the planner assumes every indexed lookup
-# yields about ten rows and uses whichever usable index it meets first, which
-# is how one view of a two-filter page came to read 2.79 million rows. With
-# them it picks the selective column and reads four.
+# Statistics first, because this is the step that stops the bleeding — not
+# because it is cheap. It was assumed to be the cheap one on the reasoning
+# that no index is built and SQLite only walks what is already there; it
+# measured 7,807,450 reads, more than a day's allowance on its own and 78% of
+# this script's total cost across the two runs. It goes first anyway: without
+# statistics the planner assumes every indexed lookup yields about ten rows
+# and uses whichever usable index it meets first, which is how one view of a
+# two-filter page came to read 2.79 million rows. With them it picks the
+# selective column and reads four.
 echo "Statistics, before anything else — this is the step that stops the burn."
 echo
 step analyze_now "ANALYZE;"

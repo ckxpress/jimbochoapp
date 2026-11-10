@@ -74,10 +74,17 @@ done
 echo "Indexes…"
 run tools/d1/indexes.sql
 
-# Statistics once, not every run: ANALYZE walks every index, which on this
-# database is millions of rows read, and a free D1 is allowed five million a
-# day. Recorded like a chunk, and a full re-import drops the schema and
-# clears this file, so a rebuilt database analyses itself again.
+# Statistics once, not every run: ANALYZE walks every index, and on this
+# database that measured 7,807,450 rows read in a single statement against a
+# free-plan allowance of 5,000,000 a day. So this step alone cannot complete
+# inside one day's quota, and a fresh import should expect search to be
+# refused until the next 00:00 UTC. It still has to happen — without
+# statistics the planner reads 2.79 million rows for one filtered page view,
+# so skipping it costs more per day than running it costs once.
+#
+# Recorded like a chunk, and a full re-import drops the schema and clears
+# this file, so a rebuilt database analyses itself again — which means a
+# rebuild is a multi-day operation for this reason alone.
 if ! applied "analyze"; then
   echo "Statistics…"
   if run tools/d1/analyze.sql; then
