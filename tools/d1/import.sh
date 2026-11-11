@@ -74,26 +74,31 @@ done
 echo "Indexes…"
 run tools/d1/indexes.sql
 
-# Statistics once, not every run: ANALYZE walks every index, and on this
-# database that measured 7,807,450 rows read in a single statement against a
-# free-plan allowance of 5,000,000 a day. So this step alone cannot complete
-# inside one day's quota, and a fresh import should expect search to be
-# refused until the next 00:00 UTC. It still has to happen — without
-# statistics the planner reads 2.79 million rows for one filtered page view,
-# so skipping it costs more per day than running it costs once.
+# Statistics, every run and not recorded: the file is 16 INSERTs into
+# sqlite_stat1, so repeating it is 16 writes and keeping it current is the
+# whole point.
 #
-# Recorded like a chunk, and a full re-import drops the schema and clears
-# this file, so a rebuilt database analyses itself again — which means a
-# rebuild is a multi-day operation for this reason alone.
-if ! applied "analyze"; then
+# These are shipped rather than computed here. Running ANALYZE on D1 measured
+# 7,807,450 rows read in one statement against a free-plan allowance of
+# 5,000,000 a day, so a fresh import could not finish inside one day's quota.
+# build-d1.js runs the same ANALYZE on the built database, where it takes 0.66
+# seconds and costs nothing, and writes the result out; see emitStats() there
+# for the measurements, including why PRAGMA analysis_limit was rejected.
+#
+# After the data and the indexes, because a stat row names an index that has
+# to exist first.
+if [ -f "$DIR/stats.sql" ]; then
   echo "Statistics…"
-  if run tools/d1/analyze.sql; then
-    echo "analyze" >> "$DONE"
-  else
-    echo "  ! ANALYZE failed. The import is fine, but the planner has no" >&2
-    echo "    statistics and multi-filter queries will read far more rows" >&2
-    echo "    than they need to. Worth looking into." >&2
+  if ! run "$DIR/stats.sql"; then
+    echo "  ! Applying statistics failed. The import is fine, but the planner" >&2
+    echo "    has none, and multi-filter queries will read far more rows than" >&2
+    echo "    they need to — one measured 2,793,926 for a single page view." >&2
+    echo "    Re-run this script; it skips the chunks already applied." >&2
   fi
+else
+  echo "  ! No $DIR/stats.sql — this build predates shipped statistics." >&2
+  echo "    Re-run \`node tools/build-d1.js\` to generate it. Falling back to" >&2
+  echo "    tools/d1/analyze.sql means 7.8M row reads, over a day's free quota." >&2
 fi
 
 echo

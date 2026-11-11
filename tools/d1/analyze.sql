@@ -1,8 +1,20 @@
--- Without this SQLite has no statistics, assumes every indexed lookup yields
--- about ten rows, and so picks whichever usable index it meets first. For
+-- The expensive path, kept as a fallback. import.sh does NOT use this.
+--
+-- Measured on D1 with 446,090 records: 7,807,450 rows read in this one
+-- statement, against a free plan that allows 5,000,000 a day. A fresh import
+-- cannot run it and finish the same day.
+--
+-- The normal path is tools/build-d1.js → build/d1/stats.sql, which computes
+-- the identical statistics locally in 0.66 seconds and ships them as 16
+-- INSERTs. Use this file only when that one is unavailable and you would
+-- rather spend a day's quota than rebuild, and only on a paid plan or
+-- immediately after 00:00 UTC.
+--
+-- Why statistics are needed at all: without them SQLite assumes every indexed
+-- lookup yields about ten rows and picks whichever usable index it meets
+-- first. For
 --   WHERE language IN ('zh') AND publisher IN ('一步工作室','三本設計製造')
 -- it picked language: 348,946 index entries read to return 4 rows, and the
 -- same again for the page query. With statistics it picks publisher and reads
--- 4. This one statement is the difference between a request costing ~700,000
--- row reads and costing ~20 — on a free tier that allows 5,000,000 a day.
+-- 4 — the difference between a request costing ~700,000 row reads and ~20.
 ANALYZE;
