@@ -168,6 +168,20 @@ it this way: a book page asks 3ook nothing, so there is no CORS arrangement to
 maintain, nothing to be slow or down, and no record of what anyone reads here
 leaving this site.
 
+The link carries the live price, which the file cannot: a price shipped in a
+build artefact is wrong the moment it changes. That comes from
+`api.like.co/likernft/book/store/search?isbn=…`, and the file still decides
+whether to ask — the ~944 listed books cause one request, the other 445,000
+book pages cause none. Verified in the browser: 0 calls on a book that is not
+listed, exactly 1 on a book that is. The link is drawn first and the price
+added when it arrives, so a slow or failed lookup costs a reader nothing.
+
+That endpoint cannot replace `npm run 3ook`. It answers one ISBN at a time and
+refuses to enumerate — no parameters, `limit` or `offset` all return
+`400 INVALID_SEARCH_QUERY` — so the sitemap is still the only way to learn
+which books exist. The two agree on coverage: of 25 ISBNs from 3ook's biggest
+publishers that the scrape did not match, the API found none either.
+
 The link says 電子版 deliberately. These records come from print
 bibliographies; a shared ISBN means an edition exists on 3ook, not that it is
 the same object in the hand.

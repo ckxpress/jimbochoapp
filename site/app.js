@@ -2859,7 +2859,16 @@
    * The edition is deliberately named 電子版 in the label. These records come
    * from print bibliographies, and a shared ISBN means an edition exists on
    * 3ook — not that it is the same object in the hand.
+   *
+   * The price comes from 3ook's own API, because a price cannot be shipped in
+   * a build artefact and stay true. The map still decides whether to ask at
+   * all: the ~944 books known to be listed cause one request, and the other
+   * 445,000 book pages cause none. The link is drawn first and the price
+   * added when it arrives, so a slow or missing answer costs a reader
+   * nothing — they get the link without a figure, which is exactly what the
+   * static file alone could offer.
    */
+  var THREEOOK_API = 'https://api.like.co/likernft/book/store/search?isbn=';
   var threeookPromise = null;
 
   function threeookMap() {
@@ -2901,8 +2910,31 @@
         a.textContent = '3ook.com 電子版 ↗';
         a.title = '在 3ook.com 購買此書的電子版';
         host2.replaceWith(a);
+        threeookPrice(book.isbn, token, a);
       })
       .catch(drop);
+  }
+
+  /** Fills the live price into a link already on the page, or leaves it be. */
+  function threeookPrice(isbn, token, a) {
+    fetch(THREEOOK_API + encodeURIComponent(isbn))
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (d) {
+        if (token !== renderToken || !a.parentNode) return;
+        var b = d && d.list && d.list[0];
+        if (!b) return;
+        if (b.isSoldOut) {
+          a.textContent = '3ook.com 電子版（已售罄） ↗';
+          return;
+        }
+        // priceInDecimalByCurrency is in cents: hkd 7000 is HK$70. `price` is
+        // the USD figure, which is not what this site quotes anywhere else.
+        var p = (b.prices && b.prices[0]) || {};
+        var cents = p.priceInDecimalByCurrency && p.priceInDecimalByCurrency.hkd;
+        if (typeof cents !== 'number') return;
+        a.textContent = '3ook.com 電子版 ' + money(cents / 100, 'HKD') + ' ↗';
+      })
+      .catch(function () {});
   }
 
   /**
@@ -3447,7 +3479,7 @@
     out.push(
       '<p style="margin-top:8px">原始資料集並不包含封面。封面已於製作資料時逐一以 ISBN 向 Google Books 查證' +
         (manifest.coversFound ? '，當中 ' + fmt(manifest.coversFound) + ' 項找到封面' : '') +
-        '，其餘自動生成，瀏覽時不會再逐本查詢。香港出版的書刊大多未被掃描收錄：本目錄以上市公司年報、教科書及政府刊物為主，Open Library 幾乎沒有香港 ISBN，而有收錄的網上書店則拒絕程式存取。關閉此選項後，本頁不會向第三方發出任何請求。</p>'
+        '，其餘自動生成，瀏覽時不會再逐本查詢。香港出版的書刊大多未被掃描收錄：本目錄以上市公司年報、教科書及政府刊物為主，Open Library 幾乎沒有香港 ISBN，而有收錄的網上書店則拒絕程式存取。關閉此選項後，封面一律自動生成，不會向 Google 讀取圖片。</p>'
     );
     out.push('</div>');
 

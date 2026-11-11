@@ -26,9 +26,19 @@
  * "available" is worse than a missing one.
  *
  * robots.txt disallows /api/ and allows /store/, so this reads only what is
- * offered: the advertised sitemap, then the store pages themselves. If 3ook
- * ever publishes a feed of {isbn, url}, this whole file becomes one request
- * and should be replaced by it.
+ * offered: the advertised sitemap, then the store pages themselves.
+ *
+ * There is now a public lookup at
+ * api.like.co/likernft/book/store/search?isbn=… and it does not replace this.
+ * It answers one ISBN at a time and refuses to enumerate — no params, limit
+ * or offset all return 400 INVALID_SEARCH_QUERY — so the only way to learn
+ * which books exist is still the sitemap. The site uses that endpoint for the
+ * live price instead, which is the half of the problem a build artefact
+ * cannot solve.
+ *
+ * The two agree. Of 25 ISBNs from 3ook's biggest publishers that this scrape
+ * did not match, the API found none either: the 31% of store pages without an
+ * ISBN genuinely have none, rather than hiding it from the JSON-LD.
  */
 
 const fs = require('fs');
