@@ -9,6 +9,12 @@ compatibility_date = "2026-10-01"
 # before. Uncomment it then, and drop workers_dev.
 workers_dev = true
 
+# Off because every deployment would otherwise get its own public URL, all of
+# them querying the same metered D1. There is no review step here that a
+# preview URL would serve — deploys go straight to production — so they are
+# only another unlisted path to the row-read allowance.
+preview_urls = false
+
 # routes = [
 #   { pattern = "api.jimbocho.app", custom_domain = true }
 # ]
