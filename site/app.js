@@ -691,7 +691,7 @@
         '<form method="dialog">' +
         '<h3>' + (opts.editing ? '修改售價' : '加入我的書架') + '</h3>' +
         '<p class="pd-book">' + escapeHtml(opts.title || '') + '</p>' +
-        '<label class="pd-field"><span>二手售價</span>' +
+        '<label class="pd-field"><span>售價</span>' +
         '<span class="pd-input"><i>HK$</i>' +
         '<input type="number" id="pd-price" min="0" step="1" inputmode="decimal" ' +
         'value="' + (value === null ? '' : value) + '" placeholder="未定價"></span></label>' +

@@ -4,6 +4,10 @@ A static site for browsing and searching book metadata from Hong Kong and
 Taiwan — **446,090 books** across 16 datasets, aiming eventually at every book
 published in both places.
 
+Two audiences, one mechanism. A reader marks what they own and what they would
+part with; an independent bookshop puts up a selection as a portfolio. Both are
+the same shelf, shared as a link — see [The bookshelf](#the-bookshelf).
+
 | | |
 |---|---|
 | 臺灣出版新書預告書訊 | 169,808 books, 2024–2026 |
@@ -128,16 +132,26 @@ Resolving at build time also means a reader loads **one request per book that
 has a cover, and none for the books that don't** — previously every card fired
 one or two lookups that mostly failed.
 
-## The reader's bookshelf
+## The bookshelf
 
 Any book can be marked **＋ 我有** from the corner of its cover, and 我的書架
-lists what the reader owns.
+lists what has been added.
 
-Adding one asks what it should sell for second-hand, pre-filled with the
-catalogue price where the record has one (2,243 records are unpriced annual
-reports and the like, so the field can be left blank — those show as 未定價).
-The price is editable from the shelf, which totals what has been priced, and it
-travels with the share link, since a shared shelf is effectively a sale list.
+Adding one asks what it should sell for, pre-filled with the catalogue price
+where the record has one (2,243 records are unpriced annual reports and the
+like, so the field can be left blank — those show as 未定價). The price is
+editable from the shelf, which totals what has been priced, and it travels with
+the share link.
+
+That makes a shared shelf a sale list for a reader clearing out their shelves,
+and a portfolio for an independent bookshop showing what it carries. The site
+does not distinguish the two, and deliberately so: both are a set of books with
+optional prices, published as an unlisted link. A bookshop needs no account and
+no listing fee to put one up, and nothing about it is uploaded here.
+
+What the shelf is *not* yet, for either of them, is a shopfront — there is no
+cart, no payment, and no way for a buyer to do anything but read the list and
+contact whoever shared it.
 
 **There are no accounts.** The site is static files on GitHub Pages — there is
 no server to authenticate against and nowhere to keep a profile — so the shelf

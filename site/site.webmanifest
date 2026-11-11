@@ -2,7 +2,7 @@
   "id": "/",
   "name": "神保町 jimbocho.app",
   "short_name": "神保町",
-  "description": "瀏覽及搜尋香港書刊資料，建立自己的書架並標示二手售價。",
+  "description": "瀏覽及搜尋香港及臺灣書刊資料。獨立書店可展示選書，讀者可建立書架並標示售價。",
   "lang": "zh-Hant-HK",
   "dir": "ltr",
   "start_url": "./",
