@@ -175,6 +175,21 @@ jobs:
                 console.log('| committed | ${{ steps.commit.outputs.changed }} |');
               "
             fi
+            # Said here because nothing else says it. This job writes R2 and
+            # never touches D1, so book pages and browse views move to the new
+            # database while search keeps answering from the previous import.
+            # No error marks that; see docs/open-issues.md issue 7 for why it
+            # is not simply wired up (a full re-import is 4,748,153 writes,
+            # 47 days of the free plan's allowance).
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              echo
+              echo "> **Search is now on the previous snapshot.** This job does not"
+              echo "> update D1. Book pages and browse views read the database above;"
+              echo "> \`/api/search\` still answers from whatever was last imported."
+              echo "> To resync: \`node tools/build-d1.js\` then"
+              echo "> \`sh tools/d1/import.sh jimbocho-search\` from a machine with the"
+              echo "> credentials. See docs/open-issues.md issue 7."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   # A job of its own purely so the `github-pages` environment gates the

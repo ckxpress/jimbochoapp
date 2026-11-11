@@ -224,3 +224,73 @@ Also open: `data.gov.tw`'s dataset *search* API needs a free registered key
 (`ER0001:API Key錯誤`). With one, the whole open-data catalogue could be swept
 for NCL bibliographic datasets instead of guessing at dataset numbers the way
 6730 was found.
+
+---
+
+## 7. A catalogue rebuild leaves search on the previous snapshot
+
+**Labels:** `ci`, `search`, `needs decision`
+
+`.github/workflows/rebuild.yml` runs the whole pipeline — import, covers,
+`build:db`, upload to R2, commit, publish — and never touches D1. Book pages
+and browse views read the new database from R2 immediately. Search is answered
+by `workers/search/index.js` over D1, which still holds whatever was imported
+last. So after every rebuild the two halves of the site disagree, and nothing
+says so: no error, no warning, just searches that miss new records and facet
+counts that do not match the browse pages beside them.
+
+### Why it has not simply been wired up
+
+A full re-import does not fit the free plan, and the limit that binds is
+writes, not reads. Measured against the live database:
+
+| step | writes |
+|---|---|
+| data inserts (`books`, `books_fts`, `facet_counts`) | 987,931 |
+| index builds (8 on `books`, 2 on `facet_counts`) | 3,760,222 |
+| **total** | **4,748,153** |
+
+The free plan allows 100,000 writes a day, so that is **47 days**. Workers
+Paid includes 50,000,000 a month, where the same import is 9.5% of one
+month's allowance.
+
+For the record, because the first diagnosis here was wrong: `ANALYZE` on D1
+measured 7,807,450 *rows read*, which is 1.6 days of the 5,000,000/day read
+allowance, and it looked like the blocker. It was not — the writes are 30×
+worse. `ANALYZE` has since been removed from the import path anyway, by
+shipping `sqlite_stat1` from the build (`tools/build-d1.js`, `emitStats`), so
+this issue is purely about write volume.
+
+### Options
+
+- **Workers Paid.** A full re-import becomes 9.5% of a month and `rebuild.yml`
+  grows one more step, gated so a failure cannot leave a half-applied
+  database. `import.sh` is already resumable and records each applied chunk,
+  which is most of what that gate needs.
+- **Incremental sync.** Write only what changed. The three `Rebuild catalogue`
+  commits in this repository's history each changed 18 lines of `site/data`
+  and reported identical counts, so a rebuild with no new source data changes
+  almost nothing, and a monthly one changes a few thousand records. Needs a
+  per-record content hash to diff against, delete-and-reinsert in the
+  contentless FTS table (possible because `books` still holds the text that a
+  contentless table does not), and a diffed `facet_counts` update rather than
+  the current wholesale replacement — `facet_counts` is 95,751 rows and would
+  otherwise dominate the delta. A routine month looks like roughly 100,000
+  writes, which is exactly one free day, so the margin is thin. And the first
+  schema change still forces a full re-import that the free plan cannot do.
+- **Keep it manual.** Run `node tools/build-d1.js` and `sh tools/d1/import.sh`
+  from a machine with the credentials, over as many days as the write
+  allowance takes, and accept that search is stale in between. This is the
+  status quo, undocumented until now.
+
+### Not a free-plan problem to optimise away
+
+446,090 records cost 446,090 writes however they are indexed; dropping
+indexes trims the 3.76M but not the floor. The read side, by contrast, is
+comfortably within the free plan: 1,225 rows read per API request measured on
+the live database, supporting roughly 4,000 requests a day, and 761
+single-filter views are precomputed static files that never reach D1 at all.
+
+**Needs a decision from the maintainer** before any of it is worth building.
+Storage is the other clock: the database is 342 MB of the free plan's 500 MB
+ceiling, with room for about 206,000 more records.
