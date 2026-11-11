@@ -12,7 +12,8 @@
     "build": "npm run import && npm run covers && npm run build:db",
     "covers": "node tools/resolve-covers.js",
     "deploy": "sh tools/deploy.sh",
-    "upload:db": "sh tools/upload-db.sh"
+    "upload:db": "sh tools/upload-db.sh",
+    "3ook": "node tools/fetch-3ook.js"
   },
   "engines": {
     "node": ">=12"

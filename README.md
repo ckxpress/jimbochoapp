@@ -132,6 +132,46 @@ Resolving at build time also means a reader loads **one request per book that
 has a cover, and none for the books that don't** — previously every card fired
 one or two lookups that mostly failed.
 
+### Availability on 3ook.com
+
+A book page links to the ebook on [3ook.com](https://3ook.com) when there is
+one:
+
+```bash
+npm run 3ook
+```
+
+3ook is a decentralised bookstore, so its URLs are keyed by an on-chain
+contract address and carry no ISBN — the ISBN is in each page's JSON-LD, in a
+block typed `["Book","Product"]`. This reads the sitemap 3ook advertises, then
+those pages, and writes `site/data/3ook.json`. Cached in `cache/3ook.json`
+(committed, like the covers) so a rebuild only fetches books added since.
+
+Measured across the whole of 3ook:
+
+| | |
+|---|---|
+| store pages | 1,908 |
+| carrying a usable ISBN | 1,314 (69%) |
+| distinct ISBNs | 1,311 |
+| also in this catalogue | **930** |
+| book pages that gain a link | 944 |
+
+So **49% of 3ook's catalogue** is reachable from here. The 31% with no ISBN are
+invisible to this and there is no honest way around it: matching on title and
+author would produce false positives, and a wrong "available" is worse than a
+missing one.
+
+The whole map ships as one 78 KB file — 61 bytes a book — loaded on the first
+book page and never for a visitor who only browses. That is the point of doing
+it this way: a book page asks 3ook nothing, so there is no CORS arrangement to
+maintain, nothing to be slow or down, and no record of what anyone reads here
+leaving this site.
+
+The link says 電子版 deliberately. These records come from print
+bibliographies; a shared ISBN means an edition exists on 3ook, not that it is
+the same object in the hand.
+
 ## The bookshelf
 
 Any book can be marked **＋ 我有** from the corner of its cover, and 我的書架

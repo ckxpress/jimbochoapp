@@ -2837,8 +2837,72 @@
         );
       }
       document.title = (displayTitle(book) || '書刊') + ' — 神保町';
+      render3ook(book, token);
       renderSiblings(book, token);
     });
+  }
+
+  /**
+   * Whether this book can be bought as an ebook on 3ook.com.
+   *
+   * The whole map is one static file, because it is small enough to be: of
+   * 3ook's ~1,900 titles about two thirds carry an ISBN and about three
+   * quarters of those are in this catalogue, so the answer for every book in
+   * the catalogue fits in tens of kilobytes. Shipping it means a book page
+   * asks 3ook nothing — no CORS arrangement to maintain, nothing to be slow
+   * or down, and no record of what anyone reads here leaving this site.
+   *
+   * Loaded on the first book page rather than with the manifest, so a visitor
+   * who only browses never fetches it at all. A failure is silent: the link
+   * does not appear, which is the correct answer when we cannot tell.
+   *
+   * The edition is deliberately named 電子版 in the label. These records come
+   * from print bibliographies, and a shared ISBN means an edition exists on
+   * 3ook — not that it is the same object in the hand.
+   */
+  var threeookPromise = null;
+
+  function threeookMap() {
+    if (!threeookPromise) {
+      threeookPromise = fetch(DATA + '3ook.json')
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .catch(function () { return null; });
+    }
+    return threeookPromise;
+  }
+
+  function render3ook(book, token) {
+    var host = el.detail.querySelector('#detail-3ook');
+    if (!host) return;
+
+    // .linkrow is a flex row with an 8px gap, so an empty placeholder is not
+    // invisible — it is 8px of space between the buttons either side of it,
+    // on the 99.8% of books that are not on 3ook. It goes away rather than
+    // staying behind "just in case".
+    var drop = function () {
+      var h = el.detail.querySelector('#detail-3ook');
+      if (h && h.parentNode) h.parentNode.removeChild(h);
+    };
+
+    if (!book.isbn) return drop();
+
+    threeookMap()
+      .then(function (map) {
+        if (token !== renderToken) return;
+        var addr = map && map.books ? map.books[book.isbn] : null;
+        var host2 = el.detail.querySelector('#detail-3ook');
+        if (!host2) return;
+        if (!addr) return drop();
+        var a = document.createElement('a');
+        a.className = 'btn';
+        a.href = (map.base || 'https://3ook.com/store/') + addr;
+        a.target = '_blank';
+        a.rel = 'noreferrer';
+        a.textContent = '3ook.com 電子版 ↗';
+        a.title = '在 3ook.com 購買此書的電子版';
+        host2.replaceWith(a);
+      })
+      .catch(drop);
   }
 
   /**
@@ -2948,6 +3012,7 @@
     }
 
     out.push('<div class="linkrow"><span id="detail-own"></span>');
+    out.push('<span id="detail-3ook"></span>');
     if (book.isbn) {
       out.push(link('https://openlibrary.org/isbn/' + book.isbn, 'Open Library'));
       out.push(link('https://www.google.com/search?q=' + encodeURIComponent('ISBN ' + book.isbn), '網上搜尋'));

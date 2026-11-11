@@ -46,6 +46,7 @@ var SHELL = [
   'tokenize.js',
   'derive.js',
   'doc-codec.js',
+  'entities.js',
   'dedupe.js',
   'schema.js',
   'app.js',

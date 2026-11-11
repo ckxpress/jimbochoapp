@@ -85,6 +85,15 @@ jobs:
         if: inputs.cover_limit != '0'
         run: npm run covers -- --limit ${{ inputs.cover_limit }}
 
+      # Which books can be bought as ebooks on 3ook.com. Non-fatal on purpose:
+      # this reads ~1,900 pages of someone else's site, and if it is down or
+      # slow the rebuild should still ship — site/data/3ook.json then keeps
+      # whatever was last committed, which is stale but not wrong. cache/3ook.json
+      # is committed, so a normal run only fetches books added since.
+      - name: Check availability on 3ook.com
+        continue-on-error: true
+        run: npm run 3ook
+
       - name: Build the database
         run: npm run build:db -- --db-url https://db.jimbocho.app/
 
