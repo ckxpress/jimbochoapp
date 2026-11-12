@@ -57,7 +57,6 @@
   var totalExact = true;
   var source = null; // JsonSource or SqliteSource, chosen by the manifest
   var renderToken = 0; // guards against out-of-order async renders
-  var covers = localStorage.getItem('covers') !== 'off';
 
   /* Whether records that are indistinguishable on screen share a card — see
      site/dedupe.js for what counts as indistinguishable. On by default,
@@ -2308,7 +2307,6 @@
     var wrap = document.createElement('div');
     wrap.className = 'cover';
     wrap.appendChild(fallbackCover(row));
-    if (!covers) return wrap;
 
     var sources = coverSources(row, large);
     if (!sources.length) return wrap;
@@ -3378,11 +3376,13 @@
     out.push('<a class="backlink" href="' + backHref() + '">← 返回搜尋結果</a>');
     out.push('<h1>關於本站</h1>');
     out.push(
+      // manifest, not rows.length: rows is the in-memory JSON array, which is
+      // empty whenever the catalogue is large enough to use the SQLite
+      // backend — which is always, at 446,090. This read「收錄 0 項書刊」on
+      // the live site.
       '<p><strong>神保町</strong>（jimbocho.app）是一個靜態書刊資料目錄，收錄 ' +
-        fmt(rows.length) +
-        ' 項書刊，全部瀏覽與搜尋均在瀏覽器內完成。資料由一個小型 Node 程式從公開資料集匯入；除資料檔案本身' +
-        (covers ? '及以 ISBN 查詢的封面縮圖' : '') +
-        '外，執行時不會向外抓取任何內容。</p>'
+        fmt(manifest.totalBooks || rows.length) +
+        ' 項書刊，全部瀏覽與搜尋均在瀏覽器內完成。資料由一個小型 Node 程式從公開資料集匯入。</p>'
     );
 
     if (dbFallbackReason) {
@@ -3474,12 +3474,9 @@
 
     out.push('<h2>封面圖片</h2>');
     out.push(
-      '<label class="switch"><input type="checkbox" id="covers-toggle"' + (covers ? ' checked' : '') + '> 以 ISBN 查詢封面圖片</label>'
-    );
-    out.push(
-      '<p style="margin-top:8px">原始資料集並不包含封面。封面已於製作資料時逐一以 ISBN 向 Google Books 查證' +
+      '<p>原始資料集並不包含封面。封面已於製作資料時逐一以 ISBN 向 Google Books 查證' +
         (manifest.coversFound ? '，當中 ' + fmt(manifest.coversFound) + ' 項找到封面' : '') +
-        '，其餘自動生成，瀏覽時不會再逐本查詢。香港出版的書刊大多未被掃描收錄：本目錄以上市公司年報、教科書及政府刊物為主，Open Library 幾乎沒有香港 ISBN，而有收錄的網上書店則拒絕程式存取。關閉此選項後，封面一律自動生成，不會向 Google 讀取圖片。</p>'
+        '，其餘自動生成，瀏覽時不會再逐本查詢。香港出版的書刊大多未被掃描收錄：本目錄以上市公司年報、教科書及政府刊物為主，Open Library 幾乎沒有香港 ISBN，而有收錄的網上書店則拒絕程式存取。</p>'
     );
     out.push('</div>');
 
@@ -3487,12 +3484,6 @@
     renderBuildId(); // the node above only exists once this is in the DOM
     var t = document.getElementById('about-timings');
     if (t) t.textContent = timingSummary();
-    var toggle = document.getElementById('covers-toggle');
-    toggle.addEventListener('change', function () {
-      covers = toggle.checked;
-      localStorage.setItem('covers', covers ? 'on' : 'off');
-      renderAbout();
-    });
     var group = document.getElementById('grouping-toggle');
     group.addEventListener('change', function () {
       grouping = group.checked;
