@@ -1,0 +1,89 @@
+# Keeps the 3ook.com links and covers fresh, without rebuilding anything.
+#
+# site/data/3ook.json is a standalone file: nothing but the browser reads it,
+# it does not feed the database, and it does not touch R2 or D1. So it can be
+# refreshed on its own schedule rather than waiting for a catalogue rebuild,
+# which uploads 473 MiB and should be asked for rather than triggered.
+#
+# Cheap because cache/3ook.json is committed: tools/fetch-3ook.js only fetches
+# store pages it has not seen, so a normal run is one sitemap request plus
+# however many books 3ook added that day. Only the first run reads all 1,908.
+name: Refresh 3ook availability
+
+on:
+  schedule:
+    # 03:00 UTC, 11:00 Hong Kong — after their day's listings, before most
+    # readers are about.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write   # to start Deploy site; see the note on GITHUB_TOKEN below
+
+# Never two of these at once, and never while a catalogue rebuild is running:
+# both commit to main and the loser would be rejected.
+concurrency:
+  group: catalogue
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Read 3ook's catalogue
+        run: npm run 3ook
+
+      - name: Commit if anything changed
+        id: commit
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add site/data/3ook.json cache/3ook.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "nothing changed — no commit, no deploy"
+          else
+            git commit -q -m "Refresh 3ook availability: $(node -e "
+              const m = require('./site/data/3ook.json');
+              process.stdout.write(Object.keys(m.books).length.toLocaleString('en-US') + ' ISBNs of ' + m.catalogue.toLocaleString('en-US') + ' titles');
+            ")"
+            git push origin HEAD:main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # deploy.yml triggers on a push touching site/**, but not this one: a
+      # push made with GITHUB_TOKEN does not start other workflows. That is
+      # also why rebuild.yml publishes inline. Rather than keeping a second
+      # copy of the publish steps here, this asks deploy.yml to run, which it
+      # accepts because it declares workflow_dispatch.
+      - name: Publish the site
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### 3ook availability"
+            echo
+            if [ -f site/data/3ook.json ]; then
+              node -e "
+                const m = require('./site/data/3ook.json');
+                console.log('| | |');
+                console.log('|---|---|');
+                console.log('| titles in their store | ' + m.catalogue.toLocaleString('en-US') + ' |');
+                console.log('| carrying a usable ISBN | ' + m.withIsbn.toLocaleString('en-US') + ' |');
+                console.log('| linkable from here | ' + Object.keys(m.books).length.toLocaleString('en-US') + ' |');
+                console.log('| changed this run | ${{ steps.commit.outputs.changed }} |');
+              "
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
