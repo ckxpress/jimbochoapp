@@ -615,11 +615,61 @@ function pad(text, width) {
  * to the same mapping function it uses for a real query result — one code path
  * for both, so a precomputed card cannot render differently from a queried one.
  */
+/**
+ * The 60 books a reader sees before they have asked for anything.
+ *
+ * This used to be the first 60 of the browse order — `cover = '', zh_first,
+ * title_display`. Sorting by the raw title sorts by code point, and `#` is
+ * U+0023 and `(` is U+0028, below every digit, letter and CJK character. So
+ * all 60 opening rows began with punctuation, none of them with a word, and
+ * because series markers, volume numbers and `(全)` are where punctuation
+ * lives, the catalogue's front door read as a manga shop — fifteen publishers
+ * looking like one genre, with two adult titles among them.
+ *
+ * Filing the titles under a key that ignores leading punctuation, which is
+ * what a library would do, is a real improvement and not a fix: it was
+ * measured, and the first page simply became parenting books beginning with a
+ * digit, 35 publishers instead of 15. Any total ordering makes its own first
+ * page an artefact of itself. There is always a next tier of punctuation.
+ *
+ * So the landing view stops being a sort order. One book per publisher, each
+ * publisher represented by a title that does not start with punctuation where
+ * it has one, scattered deterministically by a slice of the id so the result
+ * is stable between builds of the same data and varies when the data changes.
+ * Measured on the current catalogue: 60 publishers, 8 datasets, 1902 to 2026,
+ * and no punctuation-led title at all.
+ *
+ * Only this view. The other 761 scope pages keep the browse order, because a
+ * reader who filters by one publisher is asking for that publisher's books in
+ * order, and "one per publisher" means nothing there.
+ */
+function spreadSql(columns, where) {
+  return (
+    'WITH pool AS (SELECT ' + columns + ', ROW_NUMBER() OVER (' +
+      'PARTITION BY b.publisher ORDER BY ' +
+        // Within one publisher: a book with a real cover, then a title that
+        // reads like a title rather than a series marker, then the recent one.
+        "b.cover = '', (b.title_display GLOB '[#(（［【0-9]*'), b.year DESC, b.title_display" +
+      ') AS rn FROM books b WHERE 1=1' + where +
+    ') SELECT ' + columns.replace(/\bb\./g, '') +
+    ' FROM pool ORDER BY rn, ' +
+      // Rank 1 of every publisher before rank 2 of any, so the screenful is
+      // as wide as the scope allows and narrows only when it must. Neither a
+      // cover nor a distinct publisher can be required outright: ja has 31
+      // covered books in the whole catalogue, ko has 5, and vi, id and th
+      // have none — requiring one left those views with 19, 4 and 0 books.
+      "cover = '', substr(id, -3), publisher" +
+    ' LIMIT ' + FIRST_PAGE_ROWS
+  );
+}
+
 function writeFirstPage() {
   const COLUMNS =
     'b.id, b.dataset, b.title, b.subtitle, b.authors, b.publisher, b.year, b.isbn,' +
     ' b.classification, b.language, b.series, b.ref, b.src, b.price, b.currency,' +
     ' b.forsale, b.cover, b.parallel_title';
+  // Still the browse order, and still what writeScopePages() files the other
+  // 761 views by. Only the landing view departs from it; see spreadSql().
   const ORDER = "b.cover = '', b.zh_first, b.title_display";
 
   const languages = json("SELECT value FROM facet_counts WHERE scope = '' AND facet = 'language' ORDER BY n DESC")
@@ -627,10 +677,8 @@ function writeFirstPage() {
 
   const scopes = {};
   for (const scope of [''].concat(languages)) {
-    const where = scope ? ' WHERE b.language = ' + quote(scope) : '';
-    const rows = json(
-      'SELECT ' + COLUMNS + ' FROM books b' + where + ' ORDER BY ' + ORDER + ' LIMIT ' + FIRST_PAGE_ROWS
-    );
+    const where = scope ? ' AND b.language = ' + quote(scope) : '';
+    const rows = json(spreadSql(COLUMNS, where));
     // Each facet is counted against the *other* active filters, so its options
     // stay meaningful — the browser's own rule. Inside a single language that
     // means every facet is counted within it, except `language` itself, which

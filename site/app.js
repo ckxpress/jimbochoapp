@@ -41,6 +41,12 @@
   var byId = new Map();
   var fullShards = new Map();
   var results = [];
+  /* How far into the browse order the next page should start. Not
+     results.length: the landing view's first screenful is one book per
+     publisher, chosen at build time, which is not a prefix of the browse
+     order at all — so it starts from 0 there and the spread's own books are
+     dropped as they come round. */
+  var browseOffset = 0;
   /* Cards on screen that a later page's duplicate can be folded into, keyed by
      dedupeKey(). Cleared whenever the grid is, and carried across appends:
      infinite scroll means the second copy of a book can arrive sixty results
@@ -1769,6 +1775,7 @@
     if (pre) {
       setSearching(false);
       results = pre.rows.map(mapSqlRow);
+      browseOffset = 0;
       totalResults = pre.total;
       totalExact = true;
       renderCount();
@@ -1792,6 +1799,7 @@
         if (!data) return renderFromDatabase(token);
         setSearching(false);
         results = data.rows.map(mapSqlRow);
+        browseOffset = results.length;
         totalResults = data.total;
         totalExact = true;
         renderCount();
@@ -1817,6 +1825,7 @@
         if (token !== renderToken) return null;
         setSearching(false);
         results = res.rows;
+        browseOffset = results.length;
         totalResults = res.total;
         totalExact = res.exact !== false;
         renderCount();
@@ -1946,7 +1955,7 @@
     SqliteSource._busy = true;
     return ensureSource()
       .then(function () {
-        return source.page(results.length, PAGE_SIZE, totalResults);
+        return source.page(browseOffset, PAGE_SIZE, totalResults);
       })
       .then(function (res) {
         SqliteSource._busy = false;
@@ -1961,8 +1970,24 @@
           renderCount();
           return;
         }
+        // Advance by what the database returned, not by what is kept: the
+        // two differ because the landing view's screenful is one book per
+        // publisher rather than the first 60 of the browse order, so those
+        // books come round again here and are dropped. Counting kept rows
+        // instead would make the offset lag and re-read the same page.
+        browseOffset += res.rows.length;
+
+        var seen = {};
+        for (var s = 0; s < results.length; s++) seen[results[s].id] = 1;
+        var fresh = res.rows.filter(function (r) { return r && !seen[r.id]; });
+
+        // A whole page already on screen is possible, if unlikely — the
+        // spread prefers titles the browse order sorts last. Fetch the next
+        // one rather than leaving the button to do nothing when clicked.
+        if (!fresh.length) return loadMore();
+
         var start = results.length;
-        results = results.concat(res.rows);
+        results = results.concat(fresh);
         totalResults = res.total;
         totalExact = res.exact !== false;
         renderGrid(true, start);
