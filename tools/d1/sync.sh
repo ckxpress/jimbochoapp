@@ -29,6 +29,14 @@ DONE="$DIR/.applied"
   exit 1
 }
 
+# Nothing to do is the expected outcome of a rebuild that changed nothing, and
+# it should be a quiet success rather than a failed precondition check for
+# statements that do not exist.
+if [ "$(node -e 'console.log(require("./build/d1/sync/plan.json").chunks.length)')" = "0" ]; then
+  echo "Nothing to sync: D1 already matches this build."
+  exit 0
+fi
+
 # The index must be able to delete by rowid, or every update and removal below
 # fails. Checked once, here, rather than discovered a hundred chunks in.
 echo "Checking the search index can delete by rowid…"
