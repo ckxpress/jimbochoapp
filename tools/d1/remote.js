@@ -18,7 +18,11 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const PAGE = 2000;
+// Each page is one `npx wrangler` invocation, and the process start dominates
+// the query: 446,090 rows in pages of 2,000 is 223 of them. D1 caps a result
+// at 50 MB and the widest page here is twenty columns of about 600 bytes, so
+// 5,000 rows is roughly 3 MB — far inside the cap, and a third of the calls.
+const PAGE = 5000;
 
 function makeReader(options) {
   const dbName = options.dbName;

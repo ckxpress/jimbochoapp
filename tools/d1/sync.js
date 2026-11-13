@@ -38,6 +38,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
+const { makeReader, PAGE } = require('./remote.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DB = path.join(ROOT, 'site', 'data', 'books.db');
@@ -54,7 +55,6 @@ const COLUMNS = [
 const FTS_FIELDS = ['title', 'subtitle', 'parallel_title', 'authors', 'publisher',
   'series', 'classification', 'isbn', 'ref', 'year'];
 
-const PAGE = 2000;          // rows per read from D1
 const PER_CHUNK = 500;      // statements per chunk file
 // A plan bigger than this is not an incremental sync; it is a re-import
 // wearing one. Stop and say so rather than spending a week of quota.
@@ -68,6 +68,8 @@ const DRY = args.includes('--dry');
 // testing this file at all without spending read quota.
 const AGAINST = args.indexOf('--against') === -1 ? null : args[args.indexOf('--against') + 1];
 
+let reader = null;
+
 if (!DB_NAME || DB_NAME.startsWith('--')) {
   console.error('usage: node tools/d1/sync.js <database-name> [--dry] [--against <file.db>]');
   process.exit(2);
@@ -80,8 +82,9 @@ main().catch((err) => {
 
 async function main() {
   if (!fs.existsSync(DB)) throw new Error('No ' + DB + ' — run `npm run build:db` first.');
+  reader = makeReader({ dbName: DB_NAME, against: AGAINST });
 
-  console.log('Reading what D1 holds…');
+  console.log('Reading what D1 holds' + (AGAINST ? ' (standing in: ' + AGAINST + ')' : '') + '…');
   const remote = readRemoteBooks();
   console.log('  ' + remote.byId.size.toLocaleString() + ' rows, ' +
     remote.reads.toLocaleString() + ' rows read, max rowid ' + remote.maxRowid.toLocaleString());
@@ -112,52 +115,13 @@ async function main() {
 
 /* ---------------------------------------------------------------- reading */
 
-/** One query against whichever side is standing in for D1. */
-function remoteQuery(sql) {
-  if (AGAINST) {
-    const rows = JSON.parse(
-      execFileSync('sqlite3', ['-json', AGAINST, sql], { maxBuffer: 1 << 28 }).toString().trim() || '[]'
-    );
-    return { rows, meta: { rows_read: rows.length } };
-  }
-  return wrangler(sql);
-}
-
-function wrangler(sql) {
-  const out = execFileSync(
-    'npx',
-    ['wrangler', 'd1', 'execute', DB_NAME, '--remote', '--yes', '--json', '--command', sql],
-    { maxBuffer: 1 << 28, cwd: ROOT }
-  ).toString();
-  // wrangler prints a banner before the JSON on some versions; take the array.
-  const at = out.indexOf('[');
-  const parsed = JSON.parse(at === -1 ? out : out.slice(at));
-  const first = Array.isArray(parsed) ? parsed[0] : parsed;
-  return { rows: (first && first.results) || [], meta: (first && first.meta) || {} };
-}
-
 /** Every row of `books` as D1 holds it, hashed, keyed by id. */
 function readRemoteBooks() {
   const byId = new Map();
-  let after = -1;
-  let reads = 0;
-  let maxRowid = 0;
-  for (;;) {
-    const res = remoteQuery(
-      'SELECT rowid, ' + COLUMNS.join(', ') + ' FROM books WHERE rowid > ' + after +
-      ' ORDER BY rowid LIMIT ' + PAGE
-    );
-    reads += res.meta.rows_read || res.rows.length;
-    if (!res.rows.length) break;
-    for (const r of res.rows) {
-      byId.set(r.id, { rowid: r.rowid, hash: hashRow(r), row: r });
-      if (r.rowid > maxRowid) maxRowid = r.rowid;
-      after = r.rowid;
-    }
-    if (process.stdout.isTTY) process.stdout.write('  ' + byId.size.toLocaleString() + '\r');
-  }
-  if (process.stdout.isTTY) process.stdout.write('\r');
-  return { byId, reads, maxRowid };
+  const seen = reader.pageBooks(COLUMNS, (rows) => {
+    for (const r of rows) byId.set(r.id, { rowid: r.rowid, hash: hashRow(r), row: r });
+  });
+  return { byId: byId, reads: seen.reads, maxRowid: seen.maxRowid };
 }
 
 function readLocalBooks() {
@@ -186,9 +150,10 @@ function readRemoteFacets() {
   const map = new Map();
   let offset = 0;
   for (;;) {
-    // facet_counts has no rowid worth paging on and is small; it is read in
-    // whole pages ordered by its own index, which is already how it is stored.
-    const res = remoteQuery(
+    // OFFSET is safe here only because facet_counts is 95,750 rows and has no
+    // stable key to page by — the quadratic re-walk that rules it out for
+    // `books` costs a few million reads here rather than a hundred million.
+    const res = reader.query(
       'SELECT scope, facet, value, n FROM facet_counts ORDER BY scope, facet, value' +
       ' LIMIT ' + PAGE + ' OFFSET ' + offset
     );
