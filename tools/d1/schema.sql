@@ -42,8 +42,16 @@ CREATE TABLE books (
 -- and 香港 matches nothing; trigram needs three characters and fails the very
 -- common two-character query. Because the bigrams are computed before they are
 -- stored, this needs no custom tokenizer and is portable to D1 unchanged.
+--
+-- contentless_delete=1 is what makes an incremental sync possible, and this is
+-- the one place the D1 schema departs from build-sqlite.js. Without it a row
+-- can only be removed by handing the index back the exact text it was indexed
+-- with, and a wrong guess at that text is accepted in silence: it passes
+-- integrity-check, leaves the old postings matching, and search goes on
+-- returning rows whose text no longer contains the term. books.db in R2 is
+-- never deleted from, so it does not need the option and does not carry it.
 CREATE VIRTUAL TABLE books_fts USING fts5(
-  search, content='', tokenize="unicode61 remove_diacritics 2"
+  search, content='', contentless_delete=1, tokenize="unicode61 remove_diacritics 2"
 );
 
 -- Facet counts computed at build time, for the case that has no filter left

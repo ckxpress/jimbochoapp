@@ -261,27 +261,58 @@ worse. `ANALYZE` has since been removed from the import path anyway, by
 shipping `sqlite_stat1` from the build (`tools/build-d1.js`, `emitStats`), so
 this issue is purely about write volume.
 
-### Options
+### Decided: incremental sync
 
-- **Workers Paid.** A full re-import becomes 9.5% of a month and `rebuild.yml`
-  grows one more step, gated so a failure cannot leave a half-applied
-  database. `import.sh` is already resumable and records each applied chunk,
-  which is most of what that gate needs.
-- **Incremental sync.** Write only what changed. The three `Rebuild catalogue`
-  commits in this repository's history each changed 18 lines of `site/data`
-  and reported identical counts, so a rebuild with no new source data changes
-  almost nothing, and a monthly one changes a few thousand records. Needs a
-  per-record content hash to diff against, delete-and-reinsert in the
-  contentless FTS table (possible because `books` still holds the text that a
-  contentless table does not), and a diffed `facet_counts` update rather than
-  the current wholesale replacement — `facet_counts` is 95,751 rows and would
-  otherwise dominate the delta. A routine month looks like roughly 100,000
-  writes, which is exactly one free day, so the margin is thin. And the first
-  schema change still forces a full re-import that the free plan cannot do.
-- **Keep it manual.** Run `node tools/build-d1.js` and `sh tools/d1/import.sh`
-  from a machine with the credentials, over as many days as the write
-  allowance takes, and accept that search is stale in between. This is the
-  status quo, undocumented until now.
+Write only what changed. `node tools/d1/sync.js <database>` reads the whole of
+`books` back out of D1, hashes it, compares it with the database this build
+produced, and writes the smallest set of statements that would make the two
+agree. `sh tools/d1/sync.sh <database>` applies them, resumably.
+
+Measured against a copy of the live data:
+
+| | writes |
+|---|---|
+| rebuild that changed nothing | **0** |
+| a month's drift: 5,020 new books, 296 corrected, 20 withdrawn, 13,678 facet counts | **94,690** |
+| full re-import, for comparison | 4,748,153 |
+
+The plan is computed against what D1 actually holds rather than a local record
+of what was last sent, which costs 446,090 rows read — 9% of a day's read
+allowance — and buys the property that matters: a ledger would eventually be
+wrong, and being wrong here writes a delta that leaves the two databases
+quietly disagreeing. Paging is by `rowid >`; `OFFSET` would re-walk what it
+skips and turn 446,090 reads into about 100 million.
+
+Rows are matched on `id`, never on rowid. `build-sqlite.js` numbers rows
+positionally, so one record added to the first dataset shifts every rowid
+after it and a delta becomes a rewrite of the whole table. An existing row
+keeps whatever rowid D1 gave it; new rows are allocated above the maximum.
+
+### What is left: one migration, 446,090 writes
+
+`books_fts` has to be rebuilt with `contentless_delete=1` before any of this
+can run — `tools/d1/fts-migrate.js` and `.sh`, resumable, with the tables
+swapped only by the final chunk so search keeps answering from the old index
+until the new one is complete. About 4.5 days of the free write allowance, or
+minutes on Workers Paid.
+
+That option is not a nicety. A contentless FTS5 table otherwise deletes a row
+only when handed back the exact text it indexed, and a wrong guess at that
+text is accepted in silence — measured on a scratch database: the row count
+comes back correct, `integrity-check` passes, and the old postings go on
+matching forever. There is no cheap check that catches it. With the option,
+`DELETE FROM books_fts WHERE rowid = ?` simply works.
+
+### Verified, not assumed
+
+Rehearsed end to end against a copy aged by a simulated month: after the
+migration and the delta, the copy matched the build exactly — no row in one
+and not the other, no differing column on any shared id, no disagreeing facet
+count, `books_fts` and `books` the same size. Search results were compared by
+book id across eight terms (香港, 臺灣, 文化, 出版, 書店, 經濟, 兒童, 設計)
+and were identical to a clean build. Applying the whole delta a second time
+changed nothing, which is the property the runner depends on when it retries
+a chunk.
 
 ### Not a free-plan problem to optimise away
 
@@ -291,6 +322,5 @@ comfortably within the free plan: 1,225 rows read per API request measured on
 the live database, supporting roughly 4,000 requests a day, and 761
 single-filter views are precomputed static files that never reach D1 at all.
 
-**Needs a decision from the maintainer** before any of it is worth building.
 Storage is the other clock: the database is 342 MB of the free plan's 500 MB
 ceiling, with room for about 206,000 more records.
