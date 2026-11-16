@@ -86,10 +86,9 @@ jobs:
         run: npm run covers -- --limit ${{ inputs.cover_limit }}
 
       # Which books can be bought as ebooks on 3ook.com. Non-fatal on purpose:
-      # this reads ~1,900 pages of someone else's site, and if it is down or
-      # slow the rebuild should still ship — site/data/3ook.json then keeps
-      # whatever was last committed, which is stale but not wrong. cache/3ook.json
-      # is committed, so a normal run only fetches books added since.
+      # it reads someone else's service, and if that is down or slow the
+      # rebuild should still ship — site/data/3ook.json then keeps whatever
+      # was last committed, which is stale but not wrong.
       - name: Check availability on 3ook.com
         continue-on-error: true
         run: npm run 3ook

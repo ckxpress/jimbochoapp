@@ -142,25 +142,28 @@ npm run 3ook
 ```
 
 3ook is a decentralised bookstore, so its URLs are keyed by an on-chain
-contract address and carry no ISBN — the ISBN is in each page's JSON-LD, in a
-block typed `["Book","Product"]`. This reads the sitemap 3ook advertises, then
-those pages, and writes `site/data/3ook.json`. Cached in `cache/3ook.json`
-(committed, like the covers) so a rebuild only fetches books added since.
+contract address rather than an ISBN. It publishes its catalogue at
+`api.like.co/likernft/book/store/list`, which this reads in about 24 requests
+and turns into `site/data/3ook.json`.
 
-Measured across the whole of 3ook:
+It used to scrape the ISBN out of the JSON-LD on each of 1,909 store pages —
+267 MB and thirteen minutes a run. Replacing that with the feed found 346
+titles the sitemap had never listed:
 
-| | |
-|---|---|
-| store pages | 1,908 |
-| carrying a usable ISBN | 1,314 (69%) |
-| distinct ISBNs | 1,311 |
-| also in this catalogue | **930** |
-| book pages that gain a link | 944 |
+| | scraping | the feed |
+|---|---|---|
+| titles seen | 1,909 | **2,255** |
+| carrying a usable ISBN | 1,320 | **1,396** |
+| also in this catalogue | 930 | **978** |
+| requests | 1,909 | **24** |
 
-So **49% of 3ook's catalogue** is reachable from here. The 31% with no ISBN are
-invisible to this and there is no honest way around it: matching on title and
-author would produce false positives, and a wrong "available" is worse than a
-missing one.
+The 38% with no ISBN stay invisible to this, and there is no honest way
+around it: matching on title and author would produce false positives, and a
+wrong "available" is worse than a missing one.
+
+The feed also carries author, publisher, cover and language. None of that is
+used here — it is what a fuller import would be built from, which is a
+separate decision; see `docs/3ook-feed-request.md`.
 
 The whole map ships as one 78 KB file — 61 bytes a book — loaded on the first
 book page and never for a visitor who only browses. That is the point of doing

@@ -5,9 +5,10 @@
 # refreshed on its own schedule rather than waiting for a catalogue rebuild,
 # which uploads 473 MiB and should be asked for rather than triggered.
 #
-# Cheap because cache/3ook.json is committed: tools/fetch-3ook.js only fetches
-# store pages it has not seen, so a normal run is one sitemap request plus
-# however many books 3ook added that day. Only the first run reads all 1,908.
+# Cheap because 3ook publishes its catalogue: tools/fetch-3ook.js reads it in
+# about 24 requests, where it used to fetch 1,909 store pages and 267 MB. It
+# also writes nothing when nothing moved — the file keeps its previous
+# timestamp — so a quiet day makes no commit and triggers no deploy.
 name: Refresh 3ook availability
 
 on:
