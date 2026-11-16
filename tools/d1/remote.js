@@ -35,11 +35,30 @@ function makeReader(options) {
       const rows = out ? JSON.parse(out) : [];
       return { rows: rows, meta: { rows_read: rows.length } };
     }
-    const out = execFileSync(
-      'npx',
-      ['wrangler', 'd1', 'execute', dbName, '--remote', '--yes', '--json', '--command', sql],
-      { maxBuffer: 1 << 28, cwd: ROOT }
-    ).toString();
+    let out;
+    try {
+      out = execFileSync(
+        'npx',
+        ['wrangler', 'd1', 'execute', dbName, '--remote', '--yes', '--json', '--command', sql],
+        { maxBuffer: 1 << 28, cwd: ROOT }
+      ).toString();
+    } catch (err) {
+      // execFileSync throws with stdout and stderr as raw Buffers, and node
+      // prints them as arrays of byte values. Unreadable, and these tools make
+      // ninety of these calls — a failure has to say what wrangler said. The
+      // usual one is CLOUDFLARE_API_TOKEN missing from this shell, which reads
+      // as "In a non-interactive environment…" once it is decoded.
+      const text = [err.stdout, err.stderr]
+        .map((b) => (b ? b.toString().trim() : ''))
+        .filter(Boolean)
+        .join('\n');
+      let detail = text;
+      try {
+        const j = JSON.parse(text.slice(text.indexOf('{')));
+        if (j && j.error && j.error.text) detail = j.error.text;
+      } catch (ignored) { /* not JSON; the raw text is what there is */ }
+      throw new Error('wrangler failed:\n  ' + (detail || '(no output)').split('\n').join('\n  '));
+    }
     // Some wrangler versions print a banner before the JSON.
     const at = out.indexOf('[');
     const parsed = JSON.parse(at === -1 ? out : out.slice(at));
