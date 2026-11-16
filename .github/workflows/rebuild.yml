@@ -32,6 +32,10 @@ on:
         description: 'Upload to R2 and publish the site'
         type: boolean
         default: true
+      sync_d1:
+        description: 'Also apply the search-index delta to D1 (otherwise the plan is only printed)'
+        type: boolean
+        default: false
 
   # A monthly run would suit the sources — the Taiwan ISBN feed is monthly and
   # the Hong Kong catalogue lands in quarters. Left commented because enabling
@@ -112,6 +116,62 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: npm run upload:db
+
+      # Search is answered from D1, which this pipeline otherwise never touches
+      # — the split that made docs/open-issues.md issue 7. tools/d1/sync.js
+      # writes only what changed: a rebuild that moved nothing plans zero, and
+      # a month's drift measured 94,690 writes against a free plan that allows
+      # 100,000 a day, where a full re-import is 4,748,153.
+      #
+      # It has to run here rather than on anyone's laptop. sync.js diffs D1
+      # against site/data/books.db, and the only copy of that file which
+      # matches what was just uploaded to R2 is the one this job built: a
+      # laptop that re-imports gets a slightly different catalogue, and D1
+      # would end up agreeing with one nobody is reading.
+      #
+      # The plan is always printed. Applying it needs the sync_d1 input, so a
+      # rebuild shows what it would write to the live database before it
+      # writes anything.
+      - name: Sync the search index to D1
+        if: inputs.publish
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            {
+              echo "### Search index"
+              echo
+              echo "> Skipped: no \`CLOUDFLARE_API_TOKEN\` secret, so D1 was not read."
+              echo "> Search keeps answering from the previous import until it is synced."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "No CLOUDFLARE_API_TOKEN — skipping." >&2
+            exit 0
+          fi
+
+          # Always plan. Reading D1 back costs 446,090 rows read, 9% of a
+          # day's allowance, and writes nothing.
+          node tools/d1/sync.js jimbocho-search --dry | tee /tmp/d1-plan.txt
+
+          {
+            echo "### Search index"
+            echo
+            echo '```'
+            sed -n '/^Plan/,$p' /tmp/d1-plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ inputs.sync_d1 }}" != "true" ]; then
+            {
+              echo
+              echo "> Not applied. Re-run with **Also apply the search-index delta to D1** ticked."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node tools/d1/sync.js jimbocho-search
+          sh tools/d1/sync.sh jimbocho-search
 
       - name: Commit the rebuilt catalogue
         id: commit

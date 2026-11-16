@@ -84,9 +84,22 @@ export CLOUDFLARE_ACCOUNT_ID=<account id from the dashboard URL>
 npx wrangler whoami    # should name the account without opening a browser
 ```
 
-CI gets its own token, not this one: when `rebuild.yml` learns to run the D1
-import it needs **D1 : Edit** only, stored as a repository secret, so either
-token can be revoked without disturbing the other.
+CI gets its own token, not this one. `rebuild.yml` now has a "Sync the search
+index to D1" step, which needs **D1 : Edit** only, stored as the repository
+secret `CLOUDFLARE_API_TOKEN` (with `CLOUDFLARE_ACCOUNT_ID` beside it), so
+either token can be revoked without disturbing the other.
+
+Without that secret the step skips and says so in the run summary, and search
+keeps answering from the previous import — which is the state issue 7
+describes. With it, every rebuild prints the plan, and applies it only when
+the run is started with **Also apply the search-index delta to D1** ticked.
+
+It runs in CI rather than on a laptop for a reason worth keeping: `sync.js`
+diffs D1 against `site/data/books.db`, and the only copy of that file which
+matches what was uploaded to R2 is the one the job built. A laptop that
+re-imports gets a slightly different catalogue — the run that added 3ook came
+to 448,345 locally and 448,347 in CI — and D1 would end up agreeing with a
+catalogue nobody is reading.
 
 ```sh
 npx wrangler d1 create jimbocho-search --location apac
