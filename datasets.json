@@ -1589,6 +1589,27 @@
           "language": ""
         }
       ]
+    },
+    {
+      "id": "3ook",
+      "title": "3ook.com 電子書店",
+      "shortTitle": "3ook 電子書",
+      "adapter": "3ook",
+      "description": "3ook.com 上架的電子書。當中約五百種從未取得 ISBN——自資出版、期刊及香港文學——因此不見於任何書號登記或國家圖書館目錄。",
+      "provider": "3ook.com",
+      "homepage": "https://3ook.com/",
+      "dataDictionary": "https://api.like.co/likernft/book/store/list?limit=100",
+      "license": "待確認",
+      "licenseUrl": "",
+      "region": "香港",
+      "currency": "HKD",
+      "sources": [
+        {
+          "file": "cache/3ook-feed.json",
+          "label": "3ook store feed",
+          "language": ""
+        }
+      ]
     }
   ]
 }

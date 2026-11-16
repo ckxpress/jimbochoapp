@@ -1,7 +1,7 @@
 # 神保町 · jimbocho.app
 
 A static site for browsing and searching book metadata from Hong Kong and
-Taiwan — **446,090 books** across 16 datasets, aiming eventually at every book
+Taiwan — **448,345 books** across 17 datasets, aiming eventually at every book
 published in both places.
 
 Two audiences, one mechanism. A reader marks what they own and what they would
@@ -15,10 +15,11 @@ the same shelf, shared as a link — see [The bookshelf](#the-bookshelf).
 | 國家圖書館館藏書目資訊 | 118,153 books |
 | Open Library (pre-2017 Hong Kong) | 21,188 books |
 | 全國圖書書目資訊網 NBINet 圖書聯合目錄 | 18,519 books |
+| 3ook.com 電子書店 | 2,255 books, ~500 of them in no registry |
 | with a real cover | 56,509 (13%) |
 | database | 496.2 MB, queried by byte range |
 
-Chinese 348,946 · English 59,727 · ten languages in all.
+Chinese 350,926 · English 59,805 · twelve languages in all.
 
 No framework, no npm dependencies, no server. A Node script imports datasets and
 the browser does the rest — reading plain JSON, or querying a SQLite database by
@@ -144,7 +145,7 @@ npm run 3ook
 3ook is a decentralised bookstore, so its URLs are keyed by an on-chain
 contract address rather than an ISBN. It publishes its catalogue at
 `api.like.co/likernft/book/store/list`, which this reads in about 24 requests
-and turns into `site/data/3ook.json`.
+and turns into `site/data/3ook-links.json`.
 
 It used to scrape the ISBN out of the JSON-LD on each of 1,909 store pages —
 267 MB and thirteen minutes a run. Replacing that with the feed found 346

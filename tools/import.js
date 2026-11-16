@@ -40,6 +40,7 @@ const ADAPTERS = {
   'openlibrary-editions': require('./adapters/openlibrary-editions'),
   'ncl-nbinet': require('./adapters/ncl-nbinet'),
   'ncl-holdings': require('./adapters/ncl-holdings'),
+  '3ook': require('./adapters/3ook'),
   'generic-csv': require('./adapters/generic-csv'),
   json: require('./adapters/json'),
 };

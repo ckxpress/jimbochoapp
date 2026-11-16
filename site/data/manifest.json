@@ -1,8 +1,81 @@
 {
   "api": "https://jimbocho-search.likerland.workers.dev",
-  "generatedAt": "2026-11-06T05:32:35.793Z",
-  "totalBooks": 446090,
+  "generatedAt": "2026-11-16T10:13:32.282Z",
+  "totalBooks": 448345,
   "datasets": [
+    {
+      "id": "3ook",
+      "title": "3ook.com 電子書店",
+      "shortTitle": "3ook 電子書",
+      "description": "3ook.com 上架的電子書。當中約五百種從未取得 ISBN——自資出版、期刊及香港文學——因此不見於任何書號登記或國家圖書館目錄。",
+      "provider": "3ook.com",
+      "homepage": "https://3ook.com/",
+      "dataDictionary": "https://api.like.co/likernft/book/store/list?limit=100",
+      "license": "待確認",
+      "licenseUrl": "",
+      "region": "香港",
+      "year": null,
+      "adapter": "3ook",
+      "count": 2255,
+      "files": {
+        "index": [
+          "3ook.index.0.json"
+        ],
+        "full": [
+          "3ook.full.0.json"
+        ],
+        "shardSize": 3000
+      },
+      "sources": [
+        {
+          "label": "3ook store feed",
+          "url": "",
+          "file": "cache/3ook-feed.json",
+          "quarter": "",
+          "language": "",
+          "count": 2255
+        }
+      ],
+      "stats": {
+        "withIsbn": 1423,
+        "classifications": 0,
+        "publishers": 172,
+        "languages": {
+          "zh": 1980,
+          "en": 78,
+          "ja": 2,
+          "und": 1
+        },
+        "yearRange": [
+          1983,
+          2026
+        ],
+        "topPublishers": [
+          {
+            "name": "DBK",
+            "count": 475
+          },
+          {
+            "name": "突破出版",
+            "count": 110
+          },
+          {
+            "name": "崧燁文化",
+            "count": 96
+          },
+          {
+            "name": "義守書店",
+            "count": 75
+          },
+          {
+            "name": "筆求人工作室",
+            "count": 64
+          }
+        ],
+        "topClassifications": []
+      },
+      "importedAt": "2026-11-16T10:13:32.278Z"
+    },
     {
       "id": "ncl-nbinet",
       "title": "全國圖書書目資訊網 NBINet 圖書聯合目錄",

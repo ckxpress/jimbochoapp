@@ -78,20 +78,23 @@ jobs:
           sqlite3 :memory: 'CREATE VIRTUAL TABLE t USING fts5(x); SELECT 1;' >/dev/null
           echo "sqlite3 $(sqlite3 --version | cut -d' ' -f1) with FTS5 · rclone $(rclone version | head -1)"
 
+      # Before the import, not after: this writes cache/3ook-feed.json, which
+      # the `3ook` dataset is imported from, and CI starts from a fresh
+      # checkout where that file does not exist. It also writes
+      # site/data/3ook-links.json, the availability map the book page uses.
+      #
+      # Not continue-on-error any more. It was, while it only produced a link
+      # map that could safely go stale; now the import depends on it, and a
+      # missing feed would drop 2,255 records from the catalogue silently.
+      - name: Read 3ook.com's catalogue
+        run: npm run 3ook
+
       - name: Import every dataset
         run: npm run import ${{ inputs.refresh && '-- --refresh' || '' }}
 
       - name: Resolve covers
         if: inputs.cover_limit != '0'
         run: npm run covers -- --limit ${{ inputs.cover_limit }}
-
-      # Which books can be bought as ebooks on 3ook.com. Non-fatal on purpose:
-      # it reads someone else's service, and if that is down or slow the
-      # rebuild should still ship — site/data/3ook.json then keeps whatever
-      # was last committed, which is stale but not wrong.
-      - name: Check availability on 3ook.com
-        continue-on-error: true
-        run: npm run 3ook
 
       - name: Build the database
         run: npm run build:db -- --db-url https://db.jimbocho.app/

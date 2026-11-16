@@ -1,6 +1,6 @@
 # Keeps the 3ook.com links and covers fresh, without rebuilding anything.
 #
-# site/data/3ook.json is a standalone file: nothing but the browser reads it,
+# site/data/3ook-links.json is a standalone file: nothing but the browser reads
 # it does not feed the database, and it does not touch R2 or D1. So it can be
 # refreshed on its own schedule rather than waiting for a catalogue rebuild,
 # which uploads 473 MiB and should be asked for rather than triggered.
@@ -46,13 +46,13 @@ jobs:
         run: |
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add site/data/3ook.json cache/3ook.json
+          git add site/data/3ook-links.json
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "nothing changed — no commit, no deploy"
           else
             git commit -q -m "Refresh 3ook availability: $(node -e "
-              const m = require('./site/data/3ook.json');
+              const m = require('./site/data/3ook-links.json');
               process.stdout.write(Object.keys(m.books).length.toLocaleString('en-US') + ' ISBNs of ' + m.catalogue.toLocaleString('en-US') + ' titles');
             ")"
             git push origin HEAD:main
@@ -76,9 +76,9 @@ jobs:
           {
             echo "### 3ook availability"
             echo
-            if [ -f site/data/3ook.json ]; then
+            if [ -f site/data/3ook-links.json ]; then
               node -e "
-                const m = require('./site/data/3ook.json');
+                const m = require('./site/data/3ook-links.json');
                 console.log('| | |');
                 console.log('|---|---|');
                 console.log('| titles in their store | ' + m.catalogue.toLocaleString('en-US') + ' |');

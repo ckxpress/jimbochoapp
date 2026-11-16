@@ -6,7 +6,7 @@
  *
  *   npm run 3ook
  *
- * Writes site/data/3ook.json, an ISBN → contract-address map that the browser
+ * Writes site/data/3ook-links.json, an ISBN → contract-address map that the browser
  * loads once on the first book page and checks locally. A book page therefore
  * asks 3ook nothing unless the book is actually theirs, and then only for the
  * live price.
@@ -25,10 +25,10 @@
  *   matched in here      930 ->   978
  *   requests           1,909 ->     24
  *
- * The feed also carries author, publisher, cover and language, none of which
- * this file uses. They are what a fuller import would be built from — see
- * docs/3ook-feed-request.md and issue 7 — and deliberately not smuggled into
- * a link map in the meantime.
+ * Two files come out of one read. site/data/3ook-links.json is the link map the
+ * site ships. cache/3ook-feed.json is the records themselves, which
+ * tools/adapters/3ook.js turns into catalogue entries — the ~500 titles 3ook
+ * carries that never had an ISBN and so appear in no registry here.
  */
 
 const fs = require('fs');
@@ -36,7 +36,15 @@ const path = require('path');
 const https = require('https');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'site', 'data', '3ook.json');
+// Not 3ook.json: the dataset registered as `3ook` owns every
+// site/data/3ook.* file, and tools/import.js deletes that whole prefix
+// before writing its shards. This file was silently removed by the first
+// import run that followed.
+const OUT = path.join(ROOT, 'site', 'data', '3ook-links.json');
+// The records themselves, for tools/adapters/3ook.js. Not in site/data: this
+// is import input, not something the site serves, and it is regenerated in
+// seconds so it is not worth keeping in history either.
+const FEED_OUT = path.join(ROOT, 'cache', '3ook-feed.json');
 
 const FEED = 'https://api.like.co/likernft/book/store/list';
 const LIMIT = 100;          // 500 is rejected; 100 comes back as 96–100
@@ -54,6 +62,11 @@ async function main() {
   console.log('Reading 3ook.com’s catalogue…');
   const items = await readFeed();
   console.log('  ' + items.length.toLocaleString() + ' titles');
+
+  fs.mkdirSync(path.dirname(FEED_OUT), { recursive: true });
+  fs.writeFileSync(FEED_OUT, JSON.stringify(items) + '\n');
+  console.log('  → cache/3ook-feed.json (' +
+    (fs.statSync(FEED_OUT).size / 1048576).toFixed(1) + ' MB) for `npm run import -- 3ook`');
 
   const books = {};
   let withIsbn = 0;
@@ -84,8 +97,8 @@ async function main() {
   fs.writeFileSync(OUT, JSON.stringify(out) + '\n');
 
   const bytes = fs.statSync(OUT).size;
-  console.log('  ' + Object.keys(books).length.toLocaleString() + ' ISBNs → site/data/3ook.json (' +
-    (bytes / 1024).toFixed(0) + ' KB)');
+  console.log('  ' + Object.keys(books).length.toLocaleString() + ' ISBNs → ' +
+    path.relative(ROOT, OUT) + ' (' + (bytes / 1024).toFixed(0) + ' KB)');
   console.log('  ' + withIsbn.toLocaleString() + ' of ' + items.length.toLocaleString() +
     ' titles carried a usable ISBN (' + Math.round((withIsbn / Math.max(items.length, 1)) * 100) + '%)');
   if (unchanged) console.log('  Unchanged since the last run.');

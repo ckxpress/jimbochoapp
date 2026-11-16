@@ -2896,7 +2896,7 @@
 
   function threeookMap() {
     if (!threeookPromise) {
-      threeookPromise = fetch(DATA + '3ook.json')
+      threeookPromise = fetch(DATA + '3ook-links.json')
         .then(function (res) { return res.ok ? res.json() : null; })
         .catch(function () { return null; });
     }
