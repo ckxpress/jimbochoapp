@@ -134,11 +134,21 @@ jobs:
       # writes anything.
       - name: Sync the search index to D1
         if: inputs.publish
+        # Still non-fatal: the site is already uploaded and published by now,
+        # and a D1 problem should not mark that run failed. But it reports as
+        # a yellow warning rather than a red X, so the summary below has to
+        # say plainly when it did not work.
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          # A pipeline's status is its last command's, so `node … | tee` would
+          # report tee's 0 however sync.js fared — which, with
+          # continue-on-error below, is a step that looks fine and writes an
+          # empty plan. Both of those hid the first failures here.
+          set -o pipefail
+
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
             {
               echo "### Search index"
@@ -152,7 +162,18 @@ jobs:
 
           # Always plan. Reading D1 back costs 446,090 rows read, 9% of a
           # day's allowance, and writes nothing.
-          node tools/d1/sync.js jimbocho-search --dry | tee /tmp/d1-plan.txt
+          if ! node tools/d1/sync.js jimbocho-search --dry 2>&1 | tee /tmp/d1-plan.txt; then
+            {
+              echo "### Search index"
+              echo
+              echo "> **Planning failed.** Search keeps answering from the previous import."
+              echo
+              echo '```'
+              tail -30 /tmp/d1-plan.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
           {
             echo "### Search index"
@@ -170,8 +191,21 @@ jobs:
             exit 0
           fi
 
-          node tools/d1/sync.js jimbocho-search
-          sh tools/d1/sync.sh jimbocho-search
+          if ! { node tools/d1/sync.js jimbocho-search && sh tools/d1/sync.sh jimbocho-search; } 2>&1 | tee /tmp/d1-apply.txt; then
+            {
+              echo
+              echo "> **Applying failed.** Search keeps answering from the previous import."
+              echo
+              echo '```'
+              tail -30 /tmp/d1-apply.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            echo
+            echo "> Applied."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit the rebuilt catalogue
         id: commit
