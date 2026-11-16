@@ -160,9 +160,18 @@ jobs:
             exit 0
           fi
 
-          # Always plan. Reading D1 back costs 446,090 rows read, 9% of a
-          # day's allowance, and writes nothing.
-          if ! node tools/d1/sync.js jimbocho-search --dry 2>&1 | tee /tmp/d1-plan.txt; then
+          # Planning reads the whole of `books` back out of D1 — 446,090 rows,
+          # 9% of a day's read allowance — so it happens exactly once. The
+          # earlier version ran --dry and then the real thing, costing 892,180
+          # reads per applying run, which is most of how four rebuilds in a day
+          # exhausted the allowance and left search returning 500s to readers.
+          #
+          # Without the flag sync.js prints the same plan and also writes the
+          # chunks; --dry only withholds them. So the applying path omits it.
+          PLAN_ARGS=""
+          if [ "${{ inputs.sync_d1 }}" != "true" ]; then PLAN_ARGS="--dry"; fi
+
+          if ! node tools/d1/sync.js jimbocho-search $PLAN_ARGS 2>&1 | tee /tmp/d1-plan.txt; then
             {
               echo "### Search index"
               echo
@@ -191,7 +200,7 @@ jobs:
             exit 0
           fi
 
-          if ! { node tools/d1/sync.js jimbocho-search && sh tools/d1/sync.sh jimbocho-search; } 2>&1 | tee /tmp/d1-apply.txt; then
+          if ! sh tools/d1/sync.sh jimbocho-search 2>&1 | tee /tmp/d1-apply.txt; then
             {
               echo
               echo "> **Applying failed.** Search keeps answering from the previous import."
