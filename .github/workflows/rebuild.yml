@@ -36,12 +36,26 @@ on:
         description: 'Also apply the search-index delta to D1 (otherwise the plan is only printed)'
         type: boolean
         default: false
+      datasets:
+        description: 'Import only these dataset ids (space separated); blank imports every source'
+        default: ''
+        required: false
 
-  # A monthly run would suit the sources — the Taiwan ISBN feed is monthly and
-  # the Hong Kong catalogue lands in quarters. Left commented because enabling
-  # it makes this deploy to production on a schedule, which is your call:
-  # schedule:
-  #   - cron: '0 18 5 * *'
+  schedule:
+    # Two cadences, because the sources move at two speeds.
+    #
+    # Weekly, 3ook only. It is a working bookshop rather than a registry: new
+    # titles appear continuously, and about five hundred of them exist in no
+    # national bibliography, so until this runs they are in no catalogue at
+    # all. Importing one dataset skips re-fetching fifteen others and the
+    # cover probes, but it still rebuilds the database, uploads it and syncs
+    # D1 — adding records means a new database object however few they are.
+    - cron: '0 18 * * 0'
+    # Monthly, everything. The Taiwan ISBN feed is monthly and the Hong Kong
+    # catalogue lands in quarters, so this is the cadence those sources ask
+    # for. On the rare Sunday the 5th both fire; the concurrency group below
+    # serialises them and the second finds almost nothing to do.
+    - cron: '0 18 5 * *'
 
 permissions:
   contents: write
@@ -56,6 +70,24 @@ concurrency:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+    # A scheduled run carries no `inputs`, so every `inputs.publish` below
+    # would be false and the job would build a database and publish nothing.
+    # These resolve what the run is doing once, from whichever event started
+    # it, and the steps read them instead.
+    env:
+      # Only facts here, never derived values. `cond && '0' || fallback` is a
+      # trap in these expressions: if '0' is treated as falsy the whole thing
+      # evaluates to the fallback, and the weekly run would quietly do 40,000
+      # cover probes. Anything with a '0' in it is worked out in shell below.
+      WEEKLY: ${{ github.event.schedule == '0 18 * * 0' }}
+      SCHEDULED: ${{ github.event_name == 'schedule' }}
+      IN_DATASETS: ${{ inputs.datasets }}
+      IN_COVER_LIMIT: ${{ inputs.cover_limit }}
+      PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+      SYNC_D1: ${{ github.event_name == 'schedule' || inputs.sync_d1 }}
+      REFRESH: ${{ inputs.refresh == true }}
+    outputs:
+      publish: ${{ steps.flags.outputs.publish }}
     # The job ceiling is six hours. A full --recheck of all 538,066 ISBNs runs
     # about eleven at the polite concurrency the cover resolver uses, which is
     # why cover_limit exists: it caps one run, and the cache is committed, so
@@ -63,6 +95,32 @@ jobs:
     timeout-minutes: 330
 
     steps:
+      # What this run is, in one place and in the log, so a scheduled run that
+      # did something unexpected can be read rather than reconstructed.
+      - name: Decide what this run does
+        id: flags
+        run: |
+          if [ "$WEEKLY" = "true" ]; then
+            # 3ook publishes its own covers, so there is nothing for the
+            # resolver to find on a run that imports only 3ook.
+            DATASETS="3ook"
+            COVER_LIMIT="0"
+          else
+            DATASETS="$IN_DATASETS"
+            COVER_LIMIT="${IN_COVER_LIMIT:-40000}"
+          fi
+          {
+            echo "DATASETS=$DATASETS"
+            echo "COVER_LIMIT=$COVER_LIMIT"
+          } >> "$GITHUB_ENV"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
+          echo "datasets    : ${DATASETS:-(all)}"
+          echo "cover limit : $COVER_LIMIT"
+          echo "publish     : $PUBLISH"
+          echo "sync D1     : $SYNC_D1"
+          echo "refresh     : $REFRESH"
+
       - uses: actions/checkout@v7
         with:
           # deploy.sh is not used here, but a shallow clone cannot be pushed
@@ -93,12 +151,21 @@ jobs:
       - name: Read 3ook.com's catalogue
         run: npm run 3ook
 
-      - name: Import every dataset
-        run: npm run import ${{ inputs.refresh && '-- --refresh' || '' }}
+      - name: Import datasets
+        run: |
+          if [ -n "$DATASETS" ]; then
+            echo "Importing only: $DATASETS"
+            # shellcheck disable=SC2086
+            npm run import -- $DATASETS
+          elif [ "$REFRESH" = "true" ]; then
+            npm run import -- --refresh
+          else
+            npm run import
+          fi
 
       - name: Resolve covers
-        if: inputs.cover_limit != '0'
-        run: npm run covers -- --limit ${{ inputs.cover_limit }}
+        if: env.COVER_LIMIT != '0'
+        run: npm run covers -- --limit "$COVER_LIMIT"
 
       - name: Build the database
         run: npm run build:db -- --db-url https://db.jimbocho.app/
@@ -109,7 +176,7 @@ jobs:
       # going live. The site survived only because the publish steps are gated
       # on this one.
       - name: Upload the database to R2
-        if: inputs.publish
+        if: env.PUBLISH == 'true'
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -133,7 +200,7 @@ jobs:
       # rebuild shows what it would write to the live database before it
       # writes anything.
       - name: Sync the search index to D1
-        if: inputs.publish
+        if: env.PUBLISH == 'true'
         # Still non-fatal: the site is already uploaded and published by now,
         # and a D1 problem should not mark that run failed. But it reports as
         # a yellow warning rather than a red X, so the summary below has to
@@ -169,7 +236,7 @@ jobs:
           # Without the flag sync.js prints the same plan and also writes the
           # chunks; --dry only withholds them. So the applying path omits it.
           PLAN_ARGS=""
-          if [ "${{ inputs.sync_d1 }}" != "true" ]; then PLAN_ARGS="--dry"; fi
+          if [ "$SYNC_D1" != "true" ]; then PLAN_ARGS="--dry"; fi
 
           if ! node tools/d1/sync.js jimbocho-search $PLAN_ARGS 2>&1 | tee /tmp/d1-plan.txt; then
             {
@@ -192,7 +259,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${{ inputs.sync_d1 }}" != "true" ]; then
+          if [ "$SYNC_D1" != "true" ]; then
             {
               echo
               echo "> Not applied. Re-run with **Also apply the search-index delta to D1** ticked."
@@ -239,11 +306,11 @@ jobs:
       # site whose database is not being served — the one failure here that
       # otherwise surfaces weeks later as wrong facet counts in the tail.
       - name: Assemble the publishable site
-        if: inputs.publish
+        if: env.PUBLISH == 'true'
         run: sh tools/publish-dir.sh _site
 
       - uses: actions/configure-pages@v6
-        if: inputs.publish
+        if: env.PUBLISH == 'true'
 
       # Re-running a workflow keeps the previous attempt's artifact, and
       # upload-pages-artifact then adds a second with the same name, so
@@ -267,7 +334,7 @@ jobs:
           done
 
       - uses: actions/upload-pages-artifact@v5
-        if: inputs.publish
+        if: env.PUBLISH == 'true'
         with:
           path: _site
 
@@ -295,7 +362,7 @@ jobs:
             # No error marks that; see docs/open-issues.md issue 7 for why it
             # is not simply wired up (a full re-import is 4,748,153 writes,
             # 47 days of the free plan's allowance).
-            if [ "${{ inputs.publish }}" = "true" ]; then
+            if [ "$PUBLISH" = "true" ]; then
               echo
               echo "> **Search is now on the previous snapshot.** This job does not"
               echo "> update D1. Book pages and browse views read the database above;"
@@ -313,7 +380,7 @@ jobs:
   # `publish: false` run, which deploys nothing, would have been refused too.
   publish:
     needs: rebuild
-    if: inputs.publish
+    if: needs.rebuild.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -327,8 +394,8 @@ jobs:
   # laptop build of identical data hash differently, since sqlite versions pack
   # pages differently. Roughly 450 MB would accumulate per run.
   prune:
-    needs: publish
-    if: inputs.publish
+    needs: [rebuild, publish]
+    if: needs.rebuild.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
