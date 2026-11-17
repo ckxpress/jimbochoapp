@@ -79,11 +79,13 @@ export default {
      * the URL and nothing else: no cookies, no auth, one fixed CORS origin,
      * so the URL is the whole key.
      *
-     * Dormant on a workers.dev subdomain, where Cloudflare does not give the
-     * Cache API a cache: these calls are no-ops and every request pays. It
-     * starts working the day this moves to a route on the jimbocho.app zone,
-     * and until then the header below says `x-cache: miss` honestly, every
-     * time. Written now because the alternative is remembering later. */
+     * This was written expecting to be dormant: the Cache API is documented
+     * as a no-op on a workers.dev subdomain. Measured on 2026-11-17 against
+     * this deployment it is not — a repeated URL comes back `cf-cache-status:
+     * HIT`, `x-cache: hit`, with an `age`, having read no rows. So the
+     * five minutes below are real today. Treat that as observed rather than
+     * guaranteed; it is Cloudflare's to change, and the custom domain in
+     * wrangler.toml is still the place this is supported rather than lucky. */
     const cache = caches.default;
     const hit = await cache.match(request).catch(() => null);
     if (hit) {
