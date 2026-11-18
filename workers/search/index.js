@@ -66,6 +66,64 @@ export const COLUMNS =
   ' b.year, b.isbn, b.classification, b.language, b.series, b.ref, b.src,' +
   ' b.price, b.currency, b.forsale, b.cover';
 
+/* What a request actually costs, counted by the only party that knows.
+ *
+ * The caps above were chosen by arithmetic — 20,000 here, 300 there — and
+ * never checked against a real request. `wrangler d1 info` cannot settle it
+ * either: on 18 Nov 2026 its read_queries_24h sat at 0 through queries this
+ * file had demonstrably just served, against the database id this Worker is
+ * bound to. A counter that cannot see a query it received is not an
+ * instrument to budget against.
+ *
+ * So the Worker reports its own bill. Every D1 result carries meta.rows_read;
+ * summing it per request costs nothing and is exact. It leaves on the
+ * response as x-rows-read, which makes the price of any query shape a curl
+ * away, and a cache hit honestly reports 0 because a hit reads nothing.
+ *
+ * Wrapping env.DB rather than touching the five call sites keeps page(),
+ * count() and facetCounts() unaware they are being metered — they take env,
+ * so they take the wrapper. */
+function meteredDb(db, meter) {
+  const wrap = (stmt) => ({
+    _d1: stmt,
+    bind: (...args) => wrap(stmt.bind(...args)),
+    all: async () => {
+      const r = await stmt.all();
+      meter.add(r && r.meta);
+      return r;
+    },
+    /* .first() throws meta away, so this runs .all() and takes the head.
+     * Every .first() in this file is a single-row aggregate — SUM or
+     * COUNT — so nothing extra is materialised. */
+    first: async (column) => {
+      const r = await stmt.all();
+      meter.add(r && r.meta);
+      const row = r && r.results && r.results[0];
+      if (!row) return null;
+      return column === undefined ? row : row[column];
+    },
+  });
+  return {
+    prepare: (sql) => wrap(db.prepare(sql)),
+    batch: async (stmts) => {
+      const rs = await db.batch(stmts.map((st) => (st && st._d1) || st));
+      for (const r of rs) meter.add(r && r.meta);
+      return rs;
+    },
+  };
+}
+
+function newMeter() {
+  return {
+    rows: 0,
+    queries: 0,
+    add(m) {
+      this.queries += 1;
+      if (m && typeof m.rows_read === 'number') this.rows += m.rows_read;
+    },
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -91,6 +149,10 @@ export default {
     if (hit) {
       const r = new Response(hit.body, hit);
       r.headers.set('x-cache', 'hit');
+      // Stored headers carry the numbers from the miss that filled this
+      // entry; serving it again read nothing, and must not claim otherwise.
+      r.headers.set('x-rows-read', '0');
+      r.headers.set('x-d1-queries', '0');
       return r;
     }
 
@@ -108,10 +170,13 @@ export default {
         if (values.length) filters[key] = values;
       }
 
+      const meter = newMeter();
+      const metered = { ...env, DB: meteredDb(env.DB, meter) };
+
       const where = buildWhere(q, filters);
-      const rows = await page(env, where, sort, limit, offset);
-      const total = await count(env, where, filters);
-      const facets = wantFacets ? await facetCounts(env, where, filters) : {};
+      const rows = await page(metered, where, sort, limit, offset);
+      const total = await count(metered, where, filters);
+      const facets = wantFacets ? await facetCounts(metered, where, filters) : {};
 
       const res = json(
         // facetScan so the client marks ≈ at the cap the API actually used.
@@ -127,6 +192,8 @@ export default {
           // time.
           'cache-control': 'public, max-age=300',
           'x-cache': 'miss',
+          'x-rows-read': String(meter.rows),
+          'x-d1-queries': String(meter.queries),
         }
       );
       // Not awaited: the reader should not wait on the cache write, and on
