@@ -1,7 +1,7 @@
 {
   "api": "https://jimbocho-search.likerland.workers.dev",
-  "generatedAt": "2026-11-16T14:14:45.406Z",
-  "totalBooks": 448350,
+  "generatedAt": "2026-11-18T03:10:40.432Z",
+  "totalBooks": 448371,
   "datasets": [
     {
       "id": "3ook",
@@ -16,7 +16,7 @@
       "region": "香港",
       "year": null,
       "adapter": "3ook",
-      "count": 2258,
+      "count": 2278,
       "files": {
         "index": [
           "3ook.index.0.json"
@@ -33,21 +33,21 @@
           "file": "cache/3ook-feed.json",
           "quarter": "",
           "language": "",
-          "count": 2258
+          "count": 2278
         }
       ],
       "stats": {
-        "withIsbn": 1423,
+        "withIsbn": 1431,
         "classifications": 0,
-        "publishers": 173,
+        "publishers": 181,
         "languages": {
-          "zh": 1983,
+          "zh": 2003,
           "en": 78,
           "ja": 2,
           "und": 1
         },
         "yearRange": [
-          1983,
+          1982,
           2026
         ],
         "topPublishers": [
@@ -65,7 +65,7 @@
           },
           {
             "name": "義守書店",
-            "count": 75
+            "count": 76
           },
           {
             "name": "筆求人工作室",
@@ -74,7 +74,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-16T14:14:45.406Z"
+      "importedAt": "2026-11-18T03:10:40.432Z"
     },
     {
       "id": "ncl-nbinet",
@@ -158,7 +158,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-16T14:14:45.096Z"
+      "importedAt": "2026-11-18T03:10:40.112Z"
     },
     {
       "id": "ncl-holdings",
@@ -313,7 +313,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:14:42.444Z"
+      "importedAt": "2026-11-18T03:10:37.518Z"
     },
     {
       "id": "ncl-2024",
@@ -519,7 +519,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-16T14:13:16.287Z"
+      "importedAt": "2026-11-18T03:09:18.815Z"
     },
     {
       "id": "ncl-2025",
@@ -759,7 +759,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:13:03.852Z"
+      "importedAt": "2026-11-18T03:09:07.232Z"
     },
     {
       "id": "ncl-2026",
@@ -964,7 +964,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:49.055Z"
+      "importedAt": "2026-11-18T03:08:51.924Z"
     },
     {
       "id": "hkpl-2017",
@@ -1099,7 +1099,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-16T14:12:29.115Z"
+      "importedAt": "2026-11-18T03:08:34.254Z"
     },
     {
       "id": "hkpl-2018",
@@ -1267,7 +1267,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:24.178Z"
+      "importedAt": "2026-11-18T03:08:30.028Z"
     },
     {
       "id": "hkpl-2019",
@@ -1435,7 +1435,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:19.329Z"
+      "importedAt": "2026-11-18T03:08:24.251Z"
     },
     {
       "id": "hkpl-2020",
@@ -1603,7 +1603,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:12.684Z"
+      "importedAt": "2026-11-18T03:08:18.560Z"
     },
     {
       "id": "hkpl-2021",
@@ -1771,7 +1771,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:09.131Z"
+      "importedAt": "2026-11-18T03:08:15.529Z"
     },
     {
       "id": "hkpl-2022",
@@ -1937,7 +1937,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:05.655Z"
+      "importedAt": "2026-11-18T03:08:12.449Z"
     },
     {
       "id": "hkpl-2023",
@@ -2103,7 +2103,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:12:02.554Z"
+      "importedAt": "2026-11-18T03:08:09.767Z"
     },
     {
       "id": "hkpl-2024",
@@ -2269,7 +2269,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:11:57.448Z"
+      "importedAt": "2026-11-18T03:08:05.433Z"
     },
     {
       "id": "hkpl-2025",
@@ -2435,7 +2435,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:11:54.353Z"
+      "importedAt": "2026-11-18T03:08:02.759Z"
     },
     {
       "id": "hkpl-2026",
@@ -2549,7 +2549,7 @@
           }
         ]
       },
-      "importedAt": "2026-11-16T14:11:59.678Z"
+      "importedAt": "2026-11-18T03:08:07.281Z"
     },
     {
       "id": "ol-hk",
@@ -2564,7 +2564,7 @@
       "region": "Hong Kong",
       "year": null,
       "adapter": "openlibrary-editions",
-      "count": 21190,
+      "count": 21191,
       "files": {
         "index": [
           "ol-hk.index.0.json",
@@ -2603,7 +2603,7 @@
           "file": "",
           "quarter": "",
           "language": "",
-          "count": 458
+          "count": 459
         },
         {
           "label": "Hong Kong +1000",
@@ -2611,7 +2611,7 @@
           "file": "",
           "quarter": "",
           "language": "",
-          "count": 478
+          "count": 477
         },
         {
           "label": "Hong Kong +1500",
@@ -2891,7 +2891,7 @@
           "file": "",
           "quarter": "",
           "language": "",
-          "count": 424
+          "count": 425
         },
         {
           "label": "Hong Kong +19000",
@@ -3249,10 +3249,10 @@
       "stats": {
         "withIsbn": 12569,
         "classifications": 0,
-        "publishers": 4969,
+        "publishers": 4970,
         "languages": {
           "zh": 11808,
-          "en": 8901,
+          "en": 8902,
           "ja": 9,
           "de": 44,
           "fr": 41,
@@ -3289,25 +3289,25 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-16T14:14:24.860Z"
+      "importedAt": "2026-11-18T03:10:19.960Z"
     }
   ],
   "coversResolvedAt": "2026-11-16T10:30:21.843Z",
   "coversFound": 67558,
   "db": {
     "file": "books.db",
-    "bytes": 491024384,
-    "md5": "dbb08d3f99d4168891ff1a6ec117a8bc",
+    "bytes": 490876928,
+    "md5": "e69b7013211bcdf935449396ba04093b",
     "pageSize": 4096,
     "chunkBytes": 32768,
     "maxReadBytes": 262144,
-    "pages": 119879,
+    "pages": 119843,
     "probe": {
       "rowid": 1,
       "id": "3ook:0x72975656955cc29df8ccfd0d0fe82e643d79663f"
     },
-    "builtAt": "2026-11-16T14:15:51.402Z",
-    "url": "https://db.jimbocho.app/books-dbb08d3f.db"
+    "builtAt": "2026-11-18T03:11:41.774Z",
+    "url": "https://db.jimbocho.app/books-e69b7013.db"
   },
   "firstPage": {
     "file": "firstpage.json",
@@ -4102,12 +4102,12 @@
   "facetLists": {
     "dir": "facet/",
     "counts": {
-      "publisher": 38184,
+      "publisher": 38193,
       "classification": 1149
     }
   },
   "duplicates": {
-    "books": 8169,
-    "records": 16700
+    "books": 8170,
+    "records": 16702
   }
 }
