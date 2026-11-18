@@ -55,6 +55,25 @@ const COLUMNS = [
 const FTS_FIELDS = ['title', 'subtitle', 'parallel_title', 'authors', 'publisher',
   'series', 'classification', 'isbn', 'ref', 'year'];
 
+/* D1's eight indexes on `books`, by the columns each one is built from —
+ * tools/d1/indexes.sql is the source, and this must follow it.
+ *
+ * SQLite rewrites an index when the UPDATE's SET list names any column that
+ * index is built from, whether or not the value actually moved. So which
+ * columns an update sets decides what it costs, which is why the statement
+ * below sets only the ones that changed rather than all twenty. */
+const INDEX_COLUMNS = [
+  ['idx_isbn', ['isbn']],
+  ['idx_dataset', ['dataset', 'src']],
+  ['idx_browse', ['cover', 'zh_first', 'title_display']],
+  ['idx_browse_publisher', ['publisher', 'cover', 'zh_first', 'title_display']],
+  ['idx_browse_class', ['classification', 'cover', 'zh_first', 'title_display']],
+  ['idx_browse_year', ['year', 'cover', 'zh_first', 'title_display']],
+  ['idx_browse_lang', ['language', 'cover', 'zh_first', 'title_display']],
+  ['idx_browse_dataset', ['dataset', 'cover', 'zh_first', 'title_display']],
+];
+const INDEXES = INDEX_COLUMNS.length;
+
 const PER_CHUNK = 500;      // statements per chunk file
 // A plan bigger than this is not an incremental sync; it is a re-import
 // wearing one. Stop and say so rather than spending a week of quota.
@@ -189,30 +208,58 @@ function searchText(row) {
   return indexTokens(FTS_FIELDS.map((f) => row[f]).filter(Boolean).join(' ')).join(' ');
 }
 
+
+function cell(v) {
+  return v === null || v === undefined ? '' : String(v);
+}
+
+/** Which of COLUMNS differ between two rows, in COLUMNS order. */
+function changedColumns(before, after) {
+  const out = [];
+  for (const c of COLUMNS) if (cell(before[c]) !== cell(after[c])) out.push(c);
+  return out;
+}
+
 function diffBooks(local, remote) {
   const inserts = [];
   const updates = [];
   const deletes = [];
+  // How many rows each column was responsible for. A sync nobody expected is
+  // nearly always one column moving under everything — a rebuild that changed
+  // how one value is derived — and the tally says so in one line instead of
+  // leaving it to be guessed at from the total.
+  const byColumn = new Map();
 
   let nextRowid = remote.maxRowid + 1;
   for (const [id, l] of local) {
     const r = remote.byId.get(id);
-    if (!r) inserts.push({ rowid: nextRowid++, row: l.row });
-    else if (r.hash !== l.hash) updates.push({ rowid: r.rowid, row: l.row });
+    if (!r) { inserts.push({ rowid: nextRowid++, row: l.row }); continue; }
+    if (r.hash === l.hash) continue;
+
+    const changed = changedColumns(r.row, l.row);
+    for (const c of changed) byColumn.set(c, (byColumn.get(c) || 0) + 1);
+    // The search index is built from FTS_FIELDS alone, so if none of those
+    // moved the posting list is already right and rewriting it is two writes
+    // per row for no change. A cover arriving is the common case here.
+    const ftsChanged = FTS_FIELDS.some((f) => changed.indexOf(f) !== -1);
+    const indexes = INDEX_COLUMNS
+      .filter(([, cols]) => cols.some((c) => changed.indexOf(c) !== -1)).length;
+    updates.push({ rowid: r.rowid, row: l.row, changed, ftsChanged, indexes });
   }
   for (const [id, r] of remote.byId) {
     if (!local.has(id)) deletes.push({ rowid: r.rowid, id: id });
   }
 
-  // One row touched is one write to `books` plus one to each of the eight
-  // indexes on it, plus the FTS row. Measured from the reindex: building one
-  // index over the table wrote exactly one row per book.
-  const INDEXES = 8;
+  // One row touched is one write to `books` plus one to each index the
+  // statement makes SQLite rewrite, plus the FTS row. Measured from the
+  // reindex: building one index over the table wrote exactly one row per book.
+  // A whole row arriving or leaving touches all eight; an update touches only
+  // the indexes built from the columns it sets.
   const writes =
     inserts.length * (1 + INDEXES + 1) +   // the extra FTS delete is a no-op
-    updates.length * (1 + INDEXES + 2) +   // delete + insert on the FTS side
-    deletes.length * (1 + INDEXES + 1);
-  return { inserts, updates, deletes, writes };
+    deletes.length * (1 + INDEXES + 1) +
+    updates.reduce((n, u) => n + 1 + u.indexes + (u.ftsChanged ? 2 : 0), 0);
+  return { inserts, updates, deletes, writes, byColumn };
 }
 
 function diffFacets(remote, local) {
@@ -238,12 +285,24 @@ function report(plan, facets, remote) {
   console.log('\nPlan');
   line('books inserted', plan.inserts.length.toLocaleString());
   line('books updated', plan.updates.length.toLocaleString());
+  if (plan.updates.length) {
+    line('  of those, reindexed', plan.updates.filter((u) => u.ftsChanged).length.toLocaleString());
+  }
   line('books deleted', plan.deletes.length.toLocaleString());
   line('facet counts changed', facets.sets.length.toLocaleString());
   line('facet counts removed', facets.dels.length.toLocaleString());
   console.log('  ' + '-'.repeat(40));
   line('estimated writes', (plan.writes + facets.writes).toLocaleString());
   line('rows read to plan it', remote.reads.toLocaleString());
+  if (plan.byColumn && plan.byColumn.size) {
+    console.log('\n  What moved, by the number of rows each column accounts for:');
+    const ranked = [...plan.byColumn.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [col, n] of ranked.slice(0, 8)) {
+      console.log('    ' + col.padEnd(26) + n.toLocaleString().padStart(12));
+    }
+    if (ranked.length > 8) console.log('    … and ' + (ranked.length - 8) + ' more');
+  }
+
   const days = (plan.writes + facets.writes) / 100000;
   console.log('\n  ' + (days <= 1
     ? 'Fits inside one day of the free write allowance.'
@@ -272,12 +331,19 @@ function write(plan, facets) {
     'DELETE FROM books WHERE rowid = ' + d.rowid + ';',
   ]));
 
-  emit('update', plan.updates.flatMap((u) => [
-    'UPDATE books SET ' + COLUMNS.map((c) => c + ' = ' + lit(u.row[c])).join(', ') +
-      ' WHERE rowid = ' + u.rowid + ';',
-    'DELETE FROM books_fts WHERE rowid = ' + u.rowid + ';',
-    'INSERT INTO books_fts (rowid, search) VALUES (' + u.rowid + ', ' + lit(searchText(u.row)) + ');',
-  ]));
+  emit('update', plan.updates.flatMap((u) => {
+    const statements = [
+      'UPDATE books SET ' + u.changed.map((c) => c + ' = ' + lit(u.row[c])).join(', ') +
+        ' WHERE rowid = ' + u.rowid + ';',
+    ];
+    if (u.ftsChanged) {
+      statements.push(
+        'DELETE FROM books_fts WHERE rowid = ' + u.rowid + ';',
+        'INSERT INTO books_fts (rowid, search) VALUES (' + u.rowid + ', ' + lit(searchText(u.row)) + ');'
+      );
+    }
+    return statements;
+  }));
 
   // INSERT OR REPLACE, and every FTS insert preceded by a delete of the same
   // rowid, so that re-running a chunk is harmless. A chunk that fails partway
