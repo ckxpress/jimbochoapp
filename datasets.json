@@ -1610,6 +1610,44 @@
           "language": ""
         }
       ]
+    },
+    {
+      "id": "kubrick",
+      "title": "Kubrick 出版書目",
+      "shortTitle": "Kubrick 出版書目",
+      "adapter": "generic-csv",
+      "description": "Kubrick 自家出版物中未見於本站其他資料集的 60 種（以 ISBN 比對），取自 Kubrick 網站「Kubrick 出版」類別（2026-11-18 整理），出版年份 2006–2016，另一種見於 Open Library 的已剔除。",
+      "provider": "Kubrick",
+      "currency": "HKD",
+      "homepage": "https://kubrick.com.hk/kubrick-publication.html",
+      "license": "",
+      "region": "香港",
+      "sources": [
+        {
+          "file": "sources/kubrick/kubrick-publications.csv",
+          "label": "kubrick-publications.csv",
+          "language": ""
+        }
+      ]
+    },
+    {
+      "id": "breakthrough",
+      "title": "突破出版社書目",
+      "shortTitle": "突破出版社書目",
+      "adapter": "generic-csv",
+      "description": "突破出版社書目中未見於本站其他資料集的 375 種（以 ISBN 比對，無 ISBN 的以書名比對），取自突破出版社網站（2026-08-19 整理）。",
+      "provider": "突破出版社",
+      "currency": "HKD",
+      "homepage": "https://www.btproduct.com/",
+      "license": "",
+      "region": "香港",
+      "sources": [
+        {
+          "file": "sources/breakthrough/breakthrough-publications.csv",
+          "label": "breakthrough-publications.csv",
+          "language": ""
+        }
+      ]
     }
   ]
 }
