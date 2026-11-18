@@ -1,6 +1,6 @@
 {
   "api": "https://jimbocho-search.likerland.workers.dev",
-  "generatedAt": "2026-11-18T03:10:40.432Z",
+  "generatedAt": "2026-11-18T07:37:06.607Z",
   "totalBooks": 448371,
   "datasets": [
     {
@@ -74,7 +74,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-18T03:10:40.432Z"
+      "importedAt": "2026-11-18T07:37:06.606Z"
     },
     {
       "id": "ncl-nbinet",
@@ -3306,7 +3306,7 @@
       "rowid": 1,
       "id": "3ook:0x72975656955cc29df8ccfd0d0fe82e643d79663f"
     },
-    "builtAt": "2026-11-18T03:11:41.774Z",
+    "builtAt": "2026-11-18T07:37:50.270Z",
     "url": "https://db.jimbocho.app/books-e69b7013.db"
   },
   "firstPage": {
