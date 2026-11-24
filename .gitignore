@@ -27,3 +27,7 @@ books-*.db
 # put a third copy of the catalogue in history, and .applied inside it is a
 # record of one machine's import progress, meaningless anywhere else.
 build/
+
+# The assembled site, including ~550 generated scope pages. Built by
+# tools/publish-dir.sh on every deploy and derivable from what is tracked.
+_site/

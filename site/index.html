@@ -180,6 +180,11 @@
 
     <footer class="footer">
       <p id="footer-text"></p>
+      <!-- The one link out of the app into the crawlable half of the site.
+           Without it the 550 scope pages are reachable only from sitemap.xml,
+           which search engines treat as a hint rather than a path: a page no
+           link points at is a page they are entitled to ignore. -->
+      <p class="footer-browse"><a href="/browse/">瀏覽全部出版者、類別及年份</a></p>
     </footer>
 
     <script src="tokenize.js"></script>

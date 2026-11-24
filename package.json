@@ -15,7 +15,8 @@
     "upload:db": "sh tools/upload-db.sh",
     "3ook": "node tools/fetch-3ook.js",
     "test:worker": "node workers/search/meter.test.mjs",
-    "status": "node tools/status.js"
+    "status": "node tools/status.js",
+    "pages": "node tools/build-pages.js"
   },
   "engines": {
     "node": ">=12"

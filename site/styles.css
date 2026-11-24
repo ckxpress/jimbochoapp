@@ -1716,3 +1716,9 @@ a.tag-link:focus-visible {
   white-space: pre;
   user-select: all;
 }
+
+/* The link from the app to the generated scope pages. Quiet: it is there for
+   crawlers and for a reader who wants a plain index, not a call to action. */
+.footer-browse { margin-top: 6px; }
+.footer-browse a { color: inherit; opacity: .75; }
+.footer-browse a:hover { opacity: 1; }

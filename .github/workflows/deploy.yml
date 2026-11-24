@@ -26,6 +26,10 @@ on:
       - 'site/**'
       - 'tools/publish-dir.sh'
       - 'tools/publish-manifest.js'
+      # The scope pages are generated at publish time rather than committed,
+      # so nothing under site/ changes when the generator does. Without this
+      # line a fix to the pages sits on main and never reaches the site.
+      - 'tools/build-pages.js'
       - '.github/workflows/deploy.yml'
 
 permissions:

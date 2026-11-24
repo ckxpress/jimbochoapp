@@ -44,6 +44,15 @@ git ls-files site/ \
       cp -p "$f" "$DEST/$rel"
     done
 
+# The scope pages, generated rather than tracked: ~550 files of HTML derived
+# from site/data/page/*.json and the manifest, rewritten on every rebuild.
+# Committing them would put several megabytes into history every week for
+# content that is already in git in its source form — the reason
+# site/data/books.db is ignored. Written after the copy because it also
+# writes sitemap.xml, which must be the generated one listing every scope
+# rather than a tracked file naming a single URL.
+node tools/build-pages.js "$DEST"
+
 # If the copy produced nothing the next line fails with "Directory nonexistent",
 # which says nothing useful about why.
 [ -d "$DEST/data" ] || {
@@ -94,7 +103,23 @@ fi
 # failed the first time only the code changed.
 #
 # sw.js is excluded from its own hash, for obvious reasons.
-STAMP=$(find "$DEST" -type f ! -name sw.js | sort | xargs cat | shasum | cut -c1-8)
+# `find | xargs cat` was wrong and silently so: xargs splits on whitespace, so
+# the first published path containing a space became two paths that do not
+# exist, cat wrote an error to stderr, and the pipeline still reported the
+# status of `cut` — zero. The stamp was then computed over a subset of the
+# site, which is exactly the failure this stamp exists to prevent: a deploy
+# whose changed files do not change the cache name leaves every returning
+# visitor running the previous app. Nothing had a space in it until the scope
+# pages arrived, so this had never fired.
+#
+# -exec … + passes paths as arguments rather than through a shell split, and
+# hashing `shasum`'s own output folds each path into the stamp as well, so a
+# file that is only renamed still changes it.
+STAMP=$(find "$DEST" -type f ! -name sw.js -exec shasum {} + | sort | shasum | cut -c1-8)
+case "$STAMP" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *) echo "✗ could not compute a cache stamp for $DEST (got '$STAMP')" >&2; exit 1 ;;
+esac
 if [ -f "$DEST/sw.js" ]; then
   TMP="$DEST/sw.js.stamping"
   sed "s/var CACHE = '[^']*';/var CACHE = 'jimbocho-$STAMP';/" "$DEST/sw.js" > "$TMP"

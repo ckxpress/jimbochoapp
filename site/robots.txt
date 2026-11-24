@@ -1,13 +1,13 @@
 # 神保町 jimbocho.app
 #
-# Everything here is public book metadata and meant to be found. Crawl it.
+# Everything here is public book metadata and meant to be found.
 #
-# There is one indexable page: the catalogue is a single-page app whose
-# routes are hash fragments (#/?q=…), which crawlers do not treat as separate
-# URLs. So this file and the sitemap beside it currently describe one
-# address. They exist now because Search Console wants both before it will
-# report anything, and because the day the catalogue gets real per-publisher
-# and per-book paths, this is where they get announced.
+# The catalogue itself is a single-page app routed on the URL hash, which is
+# not an address a crawler can index. So the browsable scopes are also
+# published as ordinary pages — one per publisher, category, dataset, year
+# and language — generated at publish time by tools/build-pages.js and listed
+# in the sitemap. /browse/ is the index of them, and the app's footer links
+# to it, so none of them depends on the sitemap alone to be found.
 
 User-agent: *
 Allow: /
