@@ -1722,3 +1722,16 @@ a.tag-link:focus-visible {
 .footer-browse { margin-top: 6px; }
 .footer-browse a { color: inherit; opacity: .75; }
 .footer-browse a:hover { opacity: 1; }
+
+/* The link beside the active-filter chips to that scope's own page. Reads as
+   a chip's quieter sibling: it leaves the app, so it should not look like
+   another filter. */
+.chip-link {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 13px;
+  text-decoration: none;
+  opacity: .72;
+  align-self: center;
+}
+.chip-link:hover { opacity: 1; text-decoration: underline; }

@@ -2834,7 +2834,58 @@
       });
     });
 
-    el.chips.hidden = !any;
+    scopePageLink();
+    el.chips.hidden = !any && !el.chips.firstChild;
+  }
+
+  /* A way out of the app to the scope's own page.
+   *
+   * Clicking a publisher inside the app filters in place, which is the right
+   * behaviour: it is instant and it keeps the search you were in the middle
+   * of. But that leaves the reader on #/?publisher=Crown, a URL a search
+   * engine does not treat as a page and which says nothing to anyone it is
+   * sent to. /publisher/Crown/ is the stable address for the same thing.
+   *
+   * Only when the view *is* that scope — one facet, one value, no query —
+   * because otherwise the page would show something other than what is on
+   * screen. And only where a page was generated: tools/build-pages.js skips
+   * scopes under five books, so the link is probed before it is offered
+   * rather than sending a reader to a 404. */
+  var scopeProbe = {};
+
+  function scopePageLink() {
+    if (!window.scopeHref) return;
+    var keys = Object.keys(state.filters).filter(function (k) {
+      return state.filters[k] && state.filters[k].size;
+    });
+    if (state.q || keys.length !== 1) return;
+
+    var facet = keys[0];
+    var values = [...state.filters[facet]];
+    if (values.length !== 1) return;
+
+    var href = window.scopeHref(facet, values[0]);
+    if (!href || scopeProbe[href] === false) return;
+
+    var a = document.createElement('a');
+    a.className = 'chip-link';
+    a.href = href;
+    var spec = null;
+    FACETS.forEach(function (f) { if (f.key === facet) spec = f; });
+    a.textContent = '此' + (spec ? spec.label : '') + '的資料頁 →';
+    el.chips.appendChild(a);
+
+    if (scopeProbe[href] === true) return;
+    // HEAD rather than a guess: a generated page either exists or it does
+    // not, and the answer is cached so one reader pays at most once per
+    // scope. A failed probe removes the link rather than leaving a 404.
+    fetch(href, { method: 'HEAD' }).then(function (res) {
+      scopeProbe[href] = res.ok;
+      if (!res.ok && a.parentNode) a.remove();
+    }).catch(function () {
+      scopeProbe[href] = false;
+      if (a.parentNode) a.remove();
+    });
   }
 
   /* ---------------- render: detail ---------------- */

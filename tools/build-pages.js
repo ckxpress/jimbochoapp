@@ -25,6 +25,9 @@
 
 const fs = require('fs');
 const path = require('path');
+/* One implementation of the slug, shared with the app so a link in the
+   catalogue and the file this writes cannot disagree. */
+const { scopeSlug, SCOPE_PLACEHOLDERS, SCOPE_DIR } = require('../site/scope-path.js');
 
 const ROOT = path.join(__dirname, '..');
 const DEST = path.resolve(process.argv[2] || path.join(ROOT, '_site'));
@@ -37,12 +40,17 @@ const ORIGIN = 'https://jimbocho.app';
  * are states, not subjects. Publishing those would be ~160 pages competing
  * with the ones that matter for the same crawl budget. */
 const FACETS = {
-  publisher: { dir: 'publisher', label: '出版者', en: 'publisher' },
-  classification: { dir: 'category', label: '類別', en: 'category' },
-  dataset: { dir: 'dataset', label: '資料集', en: 'dataset' },
-  year: { dir: 'year', label: '出版年份', en: 'year' },
-  language: { dir: 'language', label: '語言', en: 'language' },
+  publisher: { dir: SCOPE_DIR.publisher, label: '出版者', en: 'publisher' },
+  classification: { dir: SCOPE_DIR.classification, label: '類別', en: 'category' },
+  dataset: { dir: SCOPE_DIR.dataset, label: '資料集', en: 'dataset' },
+  year: { dir: SCOPE_DIR.year, label: '出版年份', en: 'year' },
+  language: { dir: SCOPE_DIR.language, label: '語言', en: 'language' },
 };
+for (const [facet, spec] of Object.entries(FACETS)) {
+  // SCOPE_DIR is what the app builds its links from; if a directory name is
+  // ever changed in one place only, every one of those links 404s silently.
+  if (!spec.dir) throw new Error('site/scope-path.js has no directory for ' + facet);
+}
 
 /* A scope with four books in it is a page with nothing to say, and a few
  * hundred of those is how a site teaches a crawler that its pages are not
@@ -54,7 +62,7 @@ const MIN_BOOKS = 5;
  * describes nothing anyone searches for, and "未標示語言" groups books whose
  * only shared property is a gap in the record. They stay browsable in the
  * app; they do not get an address of their own. */
-const PLACEHOLDERS = new Set(['[s.n.]', '[出版者不詳]', 's.n.', '出版者不詳', 'und', '']);
+const PLACEHOLDERS = new Set(SCOPE_PLACEHOLDERS);
 
 const LANGUAGES = {
   zh: '中文', en: '英文', ja: '日文', ko: '韓文', fr: '法文', de: '德文',
@@ -66,20 +74,6 @@ const LANGUAGES = {
 const esc = (s) => String(s === null || s === undefined ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
-
-/** A path segment that survives a filesystem, a URL and git. */
-function slug(value) {
-  return String(value)
-    .replace(/[\\/]/g, '-')        // a separator inside a name would make a directory
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .replace(/[?#&%:*"<>|]/g, '')  // reserved in URLs or illegal on some filesystems
-    .replace(/\s+/g, '-')     // a space becomes %20 in a URL and a split in a shell
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .replace(/^\.+/, '')           // no dotfiles, no traversal
-    .slice(0, 80)
-    .replace(/-+$/, '') || 'x';
-}
 
 const href = (p) => '/' + p.split('/').map(encodeURIComponent).join('/') + '/';
 
@@ -105,7 +99,7 @@ function scopeList(manifest) {
     if (!data) continue;
     if (facet !== 'dataset' && data.total < MIN_BOOKS) continue;
 
-    let dir = spec.dir + '/' + slug(value);
+    let dir = spec.dir + '/' + scopeSlug(value);
     if (seen.has(dir)) {
       // Two values that differ only in a character the slug drops — real in
       // this catalogue, where publishers appear with and without a colon.
