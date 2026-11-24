@@ -95,6 +95,7 @@
     results: document.getElementById('results'),
     shelf: document.getElementById('shelf-view'),
     shelfCount: document.getElementById('shelf-count'),
+    scan: document.getElementById('scan-view'),
   };
 
   /* ---------------- facet definitions ---------------- */
@@ -456,6 +457,9 @@
     } else if (path === '/shelf') {
       showView('shelf');
       renderShelf();
+    } else if (path === '/scan') {
+      showView('scan');
+      renderScan();
     } else {
       showView('browse');
       render();
@@ -467,6 +471,7 @@
     el.detail.hidden = name !== 'detail';
     el.about.hidden = name !== 'about';
     el.shelf.hidden = name !== 'shelf';
+    el.scan.hidden = name !== 'scan';
     if (name !== 'browse') window.scrollTo(0, 0);
   }
 
@@ -930,6 +935,32 @@
       });
     },
 
+    /**
+     * One free-text query, answered without touching `state`.
+     *
+     * `query` above reads the global filter state, which is right for the
+     * browse view and wrong for anything else: the shelf scanner asks about
+     * a book spine while the reader may have Chinese-only and a publisher
+     * ticked, and inheriting that would hide the answer. So this takes a
+     * finished FTS expression and asks for nothing else.
+     */
+    lookup: function (expr, limit) {
+      var u = new URL(manifest.api.replace(/\/$/, '') + '/api/search');
+      u.searchParams.set('q', expr);
+      u.searchParams.set('offset', '0');
+      u.searchParams.set('limit', String(limit || 20));
+      u.searchParams.set('facets', '0');
+      return fetch(u.href)
+        .then(function (res) {
+          if (!res.ok) throw new Error('search API ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          if (data.error) throw new Error(data.error);
+          return (data.rows || []).map(mapSqlRow);
+        });
+    },
+
     /* The book page still reads the file: `docs` is 124 MB of deflated full
        records and stayed in R2 rather than going to D1. Opened lazily, so a
        reader who only searches never pays for it. */
@@ -1103,6 +1134,20 @@
         }
       });
     },
+    /** The same state-free free-text query as ApiSource.lookup, over the file. */
+    lookup: function (expr, limit) {
+      var columns =
+        'b.id, b.dataset, b.title, b.subtitle, b.authors, b.publisher, b.year, b.isbn,' +
+        ' b.classification, b.language, b.series, b.ref, b.src, b.price, b.currency, b.forsale, b.cover' +
+        (SqliteSource._zh ? ', b.parallel_title' : '');
+      var sql =
+        'SELECT ' + columns + ' FROM (SELECT rowid FROM books_fts WHERE books_fts MATCH ?' +
+        ' ORDER BY bm25(books_fts) LIMIT ?) h CROSS JOIN books b ON b.rowid = h.rowid';
+      return SqliteSource.query(sql, [expr, limit || 20]).then(function (res) {
+        return res.map(mapSqlRow);
+      });
+    },
+
     page: function (offset, limit, knownTotal) {
       var where = sqlWhere(null);
       var order = sqlOrder();
@@ -3283,6 +3328,686 @@
     out.push('<tr><th>' + escapeHtml(label) + '</th><td>' + (isHtml ? value : escapeHtml(String(value))) + '</td></tr>');
   }
 
+  /* ---------------- render: a shelf from a photograph ---------------- */
+
+  /**
+   * Where the recogniser comes from.
+   *
+   * Overridable by `ocr` in the manifest, and `null` there turns the offer
+   * off entirely — the point being that this is a deploy decision rather
+   * than something the page insists on. The reader is never charged for it
+   * unless they press the button.
+   *
+   * The choices are not arbitrary and are worth keeping written down,
+   * because the obvious ones cost 32 MB:
+   *
+   *   chi_tra_vert, not chi_tra. The vertical model is what a spine is, and
+   *   on the mirror tesseract.js points at, chi_tra is the "best" variant at
+   *   27 MB against 1.65 MB for chi_tra_vert. eng is a further 10.9 MB and
+   *   buys little: a Latin spine is usually readable enough to type.
+   *
+   *   the LSTM-only core, not the full one. Every model here is LSTM, so the
+   *   legacy engine in the full core is 800 KB of nothing.
+   *
+   * Which leaves ~5.8 MB, and `bytes` exists so the button can say so
+   * instead of going quiet for twenty seconds on mobile data.
+   */
+  var OCR_DEFAULT = {
+    script: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-simd-lstm.wasm.js',
+    langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+    languages: 'chi_tra_vert',
+    bytes: 5800000,
+  };
+
+  function ocrConfig() {
+    if (manifest && Object.prototype.hasOwnProperty.call(manifest, 'ocr')) return manifest.ocr;
+    return OCR_DEFAULT;
+  }
+
+  var scan = {
+    prepared: null,
+    strips: [],
+    current: -1,
+    sensitivity: 1,
+    barcodes: null,
+    busy: '',
+    note: '',
+    lookupToken: 0,
+  };
+
+  function renderScan() {
+    document.title = '以照片建立書架 — 神保町';
+    if (window.ShelfScan) window.ShelfScan.Ocr.configure(ocrConfig());
+
+    el.scan.innerHTML = scan.strips.length ? scanWorkHtml() : scanIntroHtml();
+    bindScanFile();
+
+    if (scan.strips.length) {
+      bindScanBar();
+      renderFilm();
+      renderStrip();
+      renderBarcodes();
+    }
+  }
+
+  function scanIntroHtml() {
+    var supported = typeof document.createElement('canvas').getContext === 'function';
+    return (
+      '<div class="scan">' +
+      '<a class="backlink" href="#/shelf">← 返回我的書架</a>' +
+      '<h2>以照片建立書架</h2>' +
+      '<p class="scan-lead">拍下書架上的一排書，神保町會把照片切成一條條書脊，' +
+      '逐本對照目錄。確認過的書才收進書架。</p>' +
+      (supported
+        ? '<p><label class="btn primary scan-pick" for="scan-file">選擇或拍攝照片' +
+          '<input id="scan-file" type="file" accept="image/*" capture="environment" hidden></label></p>'
+        : '<p class="scan-warn">這部瀏覽器不支援影像處理。</p>') +
+      '<ol class="scan-how">' +
+      '<li>正面拍一排書，盡量讓書脊立直、充滿畫面。</li>' +
+      '<li>一次一排比一次拍整個書櫃準。</li>' +
+      '<li>書背朝外、看到條碼的話更好——條碼就是 ISBN，可以直接對上。</li>' +
+      '</ol>' +
+      '<p class="shelf-note">照片只在這部裝置上處理，不會上載。送到搜尋服務的' +
+      '只有文字，不是影像。</p>' +
+      '</div>'
+    );
+  }
+
+  function scanWorkHtml() {
+    var done = scan.strips.filter(function (s) { return s.state === 'done'; }).length;
+    return (
+      '<div class="scan">' +
+      '<a class="backlink" href="#/shelf">← 返回我的書架</a>' +
+      '<div class="scan-bar">' +
+      '<p class="scan-tally">找到 <strong>' + fmt(scan.strips.length) + '</strong> 條書脊' +
+      ' · 已加入 <strong>' + fmt(done) + '</strong> 本</p>' +
+      '<div class="scan-bar-actions">' +
+      '<span class="scan-sens">切得：' +
+      '<button class="btn small" id="scan-coarser" type="button" title="切得粗一點">較少</button>' +
+      '<button class="btn small" id="scan-finer" type="button" title="切得細一點">較多</button>' +
+      '</span>' +
+      '<label class="btn small" for="scan-file">換一張' +
+      '<input id="scan-file" type="file" accept="image/*" capture="environment" hidden></label>' +
+      '</div>' +
+      '</div>' +
+      (scan.note ? '<p class="scan-note">' + escapeHtml(scan.note) + '</p>' : '') +
+      '<div id="scan-barcodes"></div>' +
+      '<div class="scan-film" id="scan-film"></div>' +
+      '<div class="scan-stage" id="scan-stage"></div>' +
+      '</div>'
+    );
+  }
+
+  /* ---- the strip of spines ---- */
+
+  /**
+   * The spines stay upright and in order, so the row is a picture of the
+   * shelf the reader is holding the phone up to. Rotating them so the titles
+   * read horizontally was tried and is worse: it is easier to read and
+   * impossible to navigate, because nothing on screen looks like the shelf
+   * any more.
+   */
+  function renderFilm() {
+    var film = document.getElementById('scan-film');
+    if (!film) return;
+
+    film.innerHTML = scan.strips
+      .map(function (strip, i) {
+        var cls = 'scan-strip' + (i === scan.current ? ' current' : '') + ' is-' + strip.state;
+        return (
+          '<button type="button" class="' + cls + '" data-strip="' + i + '" ' +
+          'aria-label="第 ' + (i + 1) + ' 條書脊" aria-current="' + (i === scan.current) + '">' +
+          '<img src="' + strip.thumb + '" alt="" />' +
+          '<span class="scan-mark" aria-hidden="true">' +
+          (strip.state === 'done' ? '✓' : strip.state === 'skipped' ? '–' : '') +
+          '</span></button>'
+        );
+      })
+      .join('');
+
+    // Assigned, not added. This element outlives the renders that refill it
+    // — selectStrip calls renderFilm without rebuilding the view around it —
+    // so addEventListener stacks a fresh handler on every render and the same
+    // click runs it several times. Harmless here and not harmless in
+    // renderCandidates below, where it confirmed one book and advanced twice,
+    // stepping over the next spine without ever showing it.
+    film.onclick = function (e) {
+      var button = e.target.closest ? e.target.closest('[data-strip]') : null;
+      if (!button) return;
+      selectStrip(Number(button.getAttribute('data-strip')));
+    };
+  }
+
+  function selectStrip(index) {
+    scan.current = index;
+    scan.lookupToken++;
+    renderFilm();
+    renderStrip();
+
+    var strip = scan.strips[index];
+    // Already read once: do not spend the engine on it again.
+    if (strip && strip.read === undefined && window.ShelfScan.Ocr.state === 'ready') readStrip();
+  }
+
+  /* ---- the one spine being answered ---- */
+
+  function renderStrip() {
+    var stage = document.getElementById('scan-stage');
+    if (!stage) return;
+
+    var strip = scan.strips[scan.current];
+    if (!strip) {
+      stage.innerHTML = '<p class="scan-hint">點上面任一條書脊，開始對照。</p>';
+      return;
+    }
+
+    var Ocr = window.ShelfScan.Ocr;
+    var offer = '';
+    if (Ocr.state === 'failed') {
+      offer = '<p class="scan-warn">自動辨識引擎載入失敗，請自行輸入。</p>';
+    } else if (Ocr.offered()) {
+      var mb = Math.round((ocrConfig().bytes || 0) / 100000) / 10;
+      offer =
+        '<button class="btn small" id="scan-ocr" type="button">' +
+        (Ocr.state === 'ready'
+          ? '自動辨識這條'
+          : '自動辨識（首次須下載約 ' + mb + ' MB）') +
+        '</button>';
+    }
+
+    // Naming the hosts, not just the megabytes.
+    //
+    // Everything else this page does talks only to jimbocho.app and its own
+    // object storage. Pressing that button is the one moment a reader's
+    // browser contacts somebody else, and it is their decision to make — so
+    // the hosts are named, and read from the configuration rather than
+    // written out, because moving the engine into R2 beside the database
+    // should change this line by itself rather than leave it quietly wrong.
+    var origins = '';
+    if (Ocr.offered() && Ocr.state !== 'ready' && Ocr.state !== 'failed') {
+      var hosts = {};
+      ['script', 'workerPath', 'corePath', 'langPath'].forEach(function (key) {
+        var url = ocrConfig()[key];
+        if (!url) return;
+        try { hosts[new URL(url, location.href).host] = true; } catch (err) { /* not a URL */ }
+      });
+      var list = Object.keys(hosts).filter(function (host) { return host !== location.host; });
+      if (list.length) {
+        origins =
+          '<p class="scan-tip">辨識引擎來自 ' + escapeHtml(list.join('、')) +
+          '，按下才會下載。書脊的影像不會離開這部裝置。</p>';
+      }
+    }
+
+    stage.innerHTML =
+      '<div class="scan-one">' +
+      '<img class="scan-one-img" src="' + strip.thumb + '" alt="第 ' + (scan.current + 1) + ' 條書脊" />' +
+      '<div class="scan-ask">' +
+      (strip.state === 'done' && strip.book
+        ? '<p class="scan-settled">已加入：<a href="#/book/' + escapeAttr(strip.book.id) + '">' +
+          escapeHtml(displayTitle(strip.book)) + '</a> ' +
+          '<button class="linkish" id="scan-undo" type="button">撤回</button></p>'
+        : '') +
+      '<label class="scan-field" for="scan-q">書脊上認得出的字' +
+      '<input id="scan-q" type="search" autocomplete="off" spellcheck="false" ' +
+      'placeholder="兩三個字已經夠" value="' + escapeAttr(strip.read || '') + '" /></label>' +
+      '<p class="scan-tip">不用打全。目錄有 44 萬筆，連著的四個字幾乎就能鎖定一本書。</p>' +
+      '<div class="scan-row">' + offer +
+      '<button class="btn small" id="scan-skip" type="button">略過這條</button>' +
+      '</div>' +
+      origins +
+      (scan.busy ? '<p class="scan-busy">' + escapeHtml(scan.busy) + '</p>' : '') +
+      '<div id="scan-cands"></div>' +
+      '</div></div>';
+
+    var box = document.getElementById('scan-q');
+    var timer = null;
+    box.addEventListener('input', function () {
+      clearTimeout(timer);
+      var value = box.value;
+      timer = setTimeout(function () { askCatalogue(value); }, 250);
+    });
+    box.focus();
+
+    var ocrButton = document.getElementById('scan-ocr');
+    if (ocrButton) ocrButton.addEventListener('click', readStrip);
+
+    document.getElementById('scan-skip').addEventListener('click', function () {
+      strip.state = 'skipped';
+      advance();
+    });
+
+    var undo = document.getElementById('scan-undo');
+    if (undo) {
+      undo.addEventListener('click', function () {
+        if (strip.book) Shelf.remove(strip.book.id);
+        strip.state = 'pending';
+        strip.book = null;
+        renderScan();
+      });
+    }
+
+    renderCandidates();
+  }
+
+  function renderCandidates() {
+    var host = document.getElementById('scan-cands');
+    if (!host) return;
+    var strip = scan.strips[scan.current];
+    if (!strip) return;
+
+    if (strip.looking) {
+      host.innerHTML = '<p class="scan-hint">對照目錄…</p>';
+      return;
+    }
+    if (strip.error) {
+      host.innerHTML = '<p class="scan-warn">' + escapeHtml(strip.error) + '</p>';
+      return;
+    }
+    if (!strip.candidates) {
+      host.innerHTML = '';
+      return;
+    }
+    if (!strip.candidates.length) {
+      host.innerHTML = '<p class="scan-hint">目錄裡找不到。再試別的幾個字，' +
+        '或者這本書不在現有資料集裡。</p>';
+      return;
+    }
+
+    host.innerHTML =
+      '<ul class="scan-cands">' +
+      strip.candidates
+        .map(function (row, i) {
+          var mark =
+            row._confidence === 'high'
+              ? '<span class="scan-conf high">連字 ' + row._run + '</span>'
+              : row._confidence === 'medium'
+              ? '<span class="scan-conf mid">連字 ' + row._run + '</span>'
+              : '<span class="scan-conf low">連字 ' + row._run + '</span>';
+          return (
+            '<li><button type="button" class="scan-cand" data-pick="' + i + '">' +
+            '<span class="scan-cand-title">' + escapeHtml(displayTitle(row)) + '</span>' +
+            '<span class="scan-cand-meta">' +
+            [row.publisher, row.year, row.isbn].filter(Boolean).map(escapeHtml).join(' · ') +
+            '</span>' + mark + '</button></li>'
+          );
+        })
+        .join('') +
+      '</ul>';
+
+    // Assigned rather than added: see renderFilm. Every keystroke re-renders
+    // this list into the same container, so adding would mean one tap taking
+    // the book once per character the reader typed — and advancing that many
+    // spines, skipping the ones in between.
+    host.onclick = function (e) {
+      var button = e.target.closest ? e.target.closest('[data-pick]') : null;
+      if (!button) return;
+      take(strip.candidates[Number(button.getAttribute('data-pick'))]);
+    };
+  }
+
+  /**
+   * Adds the chosen book and moves on, without asking a price.
+   *
+   * The single-book flow does ask, because there the reader has gone looking
+   * for that book and a price is the next thing on their mind. Here they are
+   * working through forty spines, and a modal between each one would make
+   * the feature slower than typing. Prices are set on the shelf afterwards,
+   * where they can be seen together.
+   */
+  function take(row) {
+    if (!row) return;
+    var strip = scan.strips[scan.current];
+    Shelf.add(row.id);
+    strip.state = 'done';
+    strip.book = row;
+    advance();
+  }
+
+  /** The next spine nobody has answered, or a finished message. */
+  function advance() {
+    var next = -1;
+    for (var i = scan.current + 1; i < scan.strips.length; i++) {
+      if (scan.strips[i].state === 'pending') { next = i; break; }
+    }
+    if (next === -1) {
+      for (var j = 0; j < scan.strips.length; j++) {
+        if (scan.strips[j].state === 'pending') { next = j; break; }
+      }
+    }
+    scan.current = next === -1 ? scan.current : next;
+    scan.note = next === -1 ? '整排都跑完了。可以換下一張照片，或者回書架標價。' : '';
+    renderScan();
+  }
+
+  /* ---- asking the catalogue ---- */
+
+  function askCatalogue(text) {
+    var strip = scan.strips[scan.current];
+    if (!strip) return;
+
+    var token = ++scan.lookupToken;
+    strip.read = text;
+    strip.error = null;
+
+    if (window.normalizeForRun(text).length < 2) {
+      strip.candidates = null;
+      strip.looking = false;
+      renderCandidates();
+      return;
+    }
+
+    strip.looking = true;
+    renderCandidates();
+
+    scanLookup(text, 24)
+      .then(function (rows) {
+        if (token !== scan.lookupToken) return; // the reader kept typing
+        strip.looking = false;
+        strip.candidates = window.rankCandidates(rows, text).slice(0, 8);
+        renderCandidates();
+      })
+      .catch(function (err) {
+        if (token !== scan.lookupToken) return;
+        strip.looking = false;
+        strip.candidates = [];
+        strip.error = '搜尋失敗：' + (err && err.message ? err.message : err);
+        renderCandidates();
+      });
+  }
+
+  /**
+   * One query, and the rows it returns are ranked here rather than trusted.
+   *
+   * The loose query is deliberate. A narrower one — ANDing bigrams inside a
+   * sliding window so a record has to share four consecutive characters —
+   * was built, measured against 150 real titles, and is worse: see the note
+   * on scanQueries in scan-match.js. It excludes the right book often
+   * enough to lose more than its precision wins, and that is the error a
+   * reader cannot correct, because they never see what was left out.
+   */
+  function scanLookup(text, limit) {
+    return ensureSource().then(function () {
+      if (!source.lookup) return localScan(text, limit);
+      var expr = window.scanExpression(text);
+      if (!expr) return [];
+      return source.lookup(expr, limit);
+    });
+  }
+
+  /**
+   * The same question against rows already in memory.
+   *
+   * Only reachable on the JSON-shard fallback, where there is no index to
+   * ask — so it is a scan, capped, and ranked by the same code as everything
+   * else. Slow enough to be noticeable and fast enough to be usable, which
+   * is the right trade for a path that only runs when both backends are
+   * unreachable.
+   */
+  function localScan(text, limit) {
+    if (!rows || !rows.length) return [];
+
+    var normalized = window.normalizeForRun(text);
+    var pairs = [];
+    for (var i = 0; i + 2 <= normalized.length; i++) {
+      var pair = normalized.slice(i, i + 2);
+      if (pairs.indexOf(pair) === -1) pairs.push(pair);
+    }
+    if (!pairs.length) return [];
+
+    var out = [];
+    var cap = Math.max(200, (limit || 24) * 10);
+    for (var r = 0; r < rows.length && out.length < cap; r++) {
+      var row = rows[r];
+      var hay = ((row.title || '') + ' ' + (row.authors || '') + ' ' + (row.publisher || '')).toLowerCase();
+      for (var pi = 0; pi < pairs.length; pi++) {
+        if (hay.indexOf(pairs[pi]) !== -1) { out.push(row); break; }
+      }
+    }
+    return out;
+  }
+
+  /* ---- the optional recogniser ---- */
+
+  function readStrip() {
+    var strip = scan.strips[scan.current];
+    if (!strip || scan.busy) return;
+
+    var Ocr = window.ShelfScan.Ocr;
+    scan.busy =
+      Ocr.state === 'ready'
+        ? '辨識中…'
+        : '正在下載辨識引擎，第一次比較慢…';
+    renderStrip();
+
+    Ocr.read(window.ShelfScan.ocrCanvas(scan.prepared, strip))
+      .then(function (text) {
+        scan.busy = '';
+        // Whitespace is meaningless here: the engine inserts it between
+        // glyphs it is unsure about, and every space would break a run that
+        // the ranking depends on being unbroken.
+        strip.read = String(text || '').replace(/\s+/g, '');
+        renderStrip();
+        askCatalogue(strip.read);
+      })
+      .catch(function () {
+        scan.busy = '';
+        // Ocr.state is now 'failed' and renderStrip says so; typing still works.
+        renderStrip();
+      });
+  }
+
+  /* ---- barcodes ---- */
+
+  /**
+   * Exact hits, kept apart from the guesses.
+   *
+   * An ISBN read off a barcode is not a candidate, it is the answer, so
+   * these are offered in one block at the top rather than mixed into the
+   * per-spine cards where they would look like one more maybe.
+   */
+  function renderBarcodes() {
+    var host = document.getElementById('scan-barcodes');
+    if (!host) return;
+    if (!scan.barcodes || !scan.barcodes.length) {
+      host.innerHTML = '';
+      return;
+    }
+
+    var fresh = scan.barcodes.filter(function (hit) { return !Shelf.has(hit.book.id); });
+    host.innerHTML =
+      '<div class="scan-exact">' +
+      '<p>照片裡讀到 <strong>' + fmt(scan.barcodes.length) + '</strong> 個 ISBN 條碼' +
+      '，這些是確定的。</p>' +
+      '<ul class="scan-cands">' +
+      scan.barcodes
+        .map(function (hit, i) {
+          var owned = Shelf.has(hit.book.id);
+          return (
+            '<li><button type="button" class="scan-cand' + (owned ? ' owned' : '') + '" data-exact="' + i + '"' +
+            (owned ? ' disabled' : '') + '>' +
+            '<span class="scan-cand-title">' + escapeHtml(displayTitle(hit.book)) + '</span>' +
+            '<span class="scan-cand-meta">' + escapeHtml(hit.isbn) +
+            (hit.book.publisher ? ' · ' + escapeHtml(hit.book.publisher) : '') + '</span>' +
+            '<span class="scan-conf ' + (owned ? 'low' : 'high') + '">' +
+            (owned ? '已在書架' : '＋ 我有') + '</span>' +
+            '</button></li>'
+          );
+        })
+        .join('') +
+      '</ul>' +
+      (fresh.length > 1
+        ? '<button class="btn small" id="scan-exact-all" type="button">全部加入（' + fresh.length + '）</button>'
+        : '') +
+      '</div>';
+
+    host.onclick = function (e) {
+      var one = e.target.closest ? e.target.closest('[data-exact]') : null;
+      if (one) {
+        var hit = scan.barcodes[Number(one.getAttribute('data-exact'))];
+        if (hit && !Shelf.has(hit.book.id)) Shelf.add(hit.book.id);
+        renderBarcodes();
+        return;
+      }
+      if (e.target.id === 'scan-exact-all') {
+        scan.barcodes.forEach(function (h) { if (!Shelf.has(h.book.id)) Shelf.add(h.book.id); });
+        renderBarcodes();
+      }
+    };
+  }
+
+  /**
+   * One ISBN to one record.
+   *
+   * An ISBN is a single token in the index — the builder tokenises it as one
+   * Latin word, digits and all — so this is a point lookup rather than a
+   * search, and it either finds the book or the book is not in the
+   * catalogue.
+   *
+   * The fallback matters more than it looks. Without it a reader on the
+   * JSON-shard backend photographs a stack of barcodes and is told nothing
+   * was found, which is indistinguishable from the books being absent.
+   */
+  function lookupIsbn(isbn) {
+    if (source.lookup) {
+      return source.lookup('"' + isbn + '"', 1).then(function (found) {
+        return found && found.length ? found[0] : null;
+      });
+    }
+    for (var i = 0; rows && i < rows.length; i++) {
+      if (rows[i].isbn === isbn) return Promise.resolve(rows[i]);
+    }
+    return Promise.resolve(null);
+  }
+
+  /* ---- taking the photograph apart ---- */
+
+  function bindScanFile() {
+    var input = document.getElementById('scan-file');
+    if (!input) return;
+    input.addEventListener('change', function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (file) takePhoto(file);
+    });
+  }
+
+  function bindScanBar() {
+    var coarser = document.getElementById('scan-coarser');
+    var finer = document.getElementById('scan-finer');
+    // Higher sensitivity means a lower threshold and more cuts, so "較多"
+    // lowers the number. Named for what the reader sees, not for the knob.
+    if (coarser) coarser.addEventListener('click', function () { resplit(scan.sensitivity + 0.35, 'fewer'); });
+    if (finer) finer.addEventListener('click', function () { resplit(scan.sensitivity - 0.35, 'more'); });
+  }
+
+  function takePhoto(file) {
+    el.scan.innerHTML =
+      '<div class="scan"><a class="backlink" href="#/shelf">← 返回我的書架</a>' +
+      '<p class="scan-busy">正在處理照片…</p></div>';
+
+    window.ShelfScan.prepare(file)
+      .then(function (prepared) {
+        scan.prepared = prepared;
+        scan.sensitivity = 1;
+        scan.barcodes = null;
+        cutStrips();
+        // Not awaited: the strips are usable immediately and the barcode
+        // lookups need the backend, which may still be opening.
+        findBarcodes();
+      })
+      .catch(function (err) {
+        el.scan.innerHTML =
+          '<div class="scan"><a class="backlink" href="#/shelf">← 返回我的書架</a>' +
+          '<p class="scan-warn">讀不到這張照片：' + escapeHtml(String(err && err.message ? err.message : err)) +
+          '</p><p><label class="btn primary" for="scan-file">再選一張' +
+          '<input id="scan-file" type="file" accept="image/*" hidden></label></p></div>';
+        bindScanFile();
+      });
+  }
+
+  function cutStrips() {
+    scan.strips = window.ShelfScan.split(scan.prepared, { sensitivity: scan.sensitivity }).map(function (strip) {
+      strip.state = 'pending';
+      strip.book = null;
+      strip.candidates = null;
+      return strip;
+    });
+    scan.current = scan.strips.length ? 0 : -1;
+    scan.note = scan.strips.length
+      ? ''
+      : '沒有找到書脊。試試正面、距離近一點拍，或者按「較多」。';
+    renderScan();
+  }
+
+  /**
+   * Re-cuts the same photograph at a different threshold.
+   *
+   * Books already added stay on the shelf — they are in `Shelf`, not in the
+   * strips — but which strip was answered is lost, because the strips
+   * themselves are different objects covering different pixels. Said out
+   * loud rather than silently, since a reader who has confirmed twenty books
+   * should not discover this by watching the ticks disappear.
+   */
+  function resplit(sensitivity, direction) {
+    if (!scan.prepared) return;
+    var done = scan.strips.filter(function (s) { return s.state === 'done'; }).length;
+    if (done && !window.confirm('重新切分會清掉這張照片的進度（已加入的 ' +
+        done + ' 本書會留在書架）。繼續？')) {
+      return;
+    }
+    var before = scan.strips.length;
+    var wanted = Math.max(0.2, Math.min(3, sensitivity));
+    if (wanted === scan.sensitivity) return saySame(direction);
+    scan.sensitivity = wanted;
+    cutStrips();
+    if (scan.strips.length === before) saySame(direction);
+  }
+
+  /**
+   * Says so when the button did nothing.
+   *
+   * It often will. A sharp photograph of an ordinary shelf has boundaries
+   * that clear the threshold by a wide margin, so moving the threshold
+   * changes nothing at all, and a control that silently does nothing reads
+   * as a broken control rather than a decisive one.
+   */
+  function saySame(direction) {
+    scan.note =
+      direction === 'more'
+        ? '\u9019\u5f35\u7167\u7247\u5207\u4e0d\u51fa\u66f4\u591a\u66f8\u810a\u4e86\u3002\u82e5\u6709\u6f0f\u6389\u7684\u66f8\uff0c\u8a66\u8a66\u8ddd\u96e2\u8fd1\u4e00\u9ede\u3001\u6b63\u9762\u91cd\u62cd\u3002'
+        : '\u9019\u5f35\u7167\u7247\u5df2\u7d93\u662f\u6700\u7c97\u7684\u5207\u6cd5\u4e86\u3002';
+    renderScan();
+  }
+
+  function findBarcodes() {
+    window.ShelfScan.barcodes(scan.prepared)
+      .then(function (hits) {
+        if (!hits.length) return;
+        return ensureSource().then(function () {
+          // One exact query each. An ISBN is a single token in the index, so
+          // this is a point lookup, not a search.
+          return Promise.all(
+            hits.map(function (hit) {
+              return lookupIsbn(hit.isbn)
+                .then(function (book) {
+                  return book ? { isbn: hit.isbn, book: book } : null;
+                })
+                .catch(function () { return null; });
+            })
+          );
+        });
+      })
+      .then(function (found) {
+        scan.barcodes = (found || []).filter(Boolean);
+        renderBarcodes();
+      })
+      .catch(function () {
+        scan.barcodes = [];
+      });
+  }
+
   /* ---------------- render: bookshelf ---------------- */
 
   /**
@@ -3306,7 +4031,8 @@
     if (!ids.length) {
       out.push(
         mine
-          ? '<p class="shelf-empty">書架還是空的。在任何書刊上按「＋ 我有」，就會收進這裡。</p>'
+          ? '<p class="shelf-empty">書架還是空的。在任何書刊上按「＋ 我有」，就會收進這裡。' +
+            '<br>或者 <a href="#/scan">拍一張書架的照片</a>，逐條書脊對照目錄。</p>'
           : '<p class="shelf-empty">這個分享連結沒有包含任何書刊。</p>'
       );
       out.push('</div>');
@@ -3325,6 +4051,7 @@
     if (mine) {
       out.push(
         '<div class="shelf-actions">' +
+          '<a class="btn primary" href="#/scan">拍照加書</a>' +
           '<button class="btn" id="shelf-share">分享書架</button>' +
           '<button class="btn" id="shelf-export">匯出 JSON</button>' +
           '<label class="btn" for="shelf-import">匯入 JSON<input id="shelf-import" type="file" accept="application/json" hidden></label>' +

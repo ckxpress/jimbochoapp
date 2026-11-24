@@ -1735,3 +1735,286 @@ a.tag-link:focus-visible {
   align-self: center;
 }
 .chip-link:hover { opacity: 1; text-decoration: underline; }
+
+/* ---------- building a shelf from a photograph ---------- */
+
+/* Promoted from the two dialogs that already defined it identically: the
+   scan view needs a primary button outside a dialog, and a third copy of
+   the same four declarations is how they start to differ. */
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.btn.small {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.scan {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 22px 20px 80px;
+}
+.scan h2 {
+  font-family: var(--serif);
+  font-size: 28px;
+  margin: 10px 0 8px;
+}
+.scan-lead {
+  color: var(--text-soft);
+  max-width: 52ch;
+  margin: 0 0 20px;
+}
+.scan-pick {
+  display: inline-block;
+}
+.scan-how {
+  color: var(--text-soft);
+  font-size: 13.5px;
+  max-width: 56ch;
+  margin: 26px 0 20px;
+  padding-left: 22px;
+}
+.scan-how li {
+  margin: 0 0 6px;
+}
+.scan-warn {
+  color: var(--accent);
+  font-size: 13.5px;
+  margin: 10px 0;
+}
+.scan-note,
+.scan-busy,
+.scan-hint,
+.scan-tip {
+  font-size: 13px;
+  color: var(--text-faint);
+  margin: 8px 0;
+}
+.scan-busy {
+  color: var(--text-soft);
+}
+
+.scan-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  margin: 10px 0 14px;
+}
+.scan-tally {
+  margin: 0;
+  color: var(--text-soft);
+}
+.scan-bar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.scan-sens {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+/* The row of spines, in the order they stand on the shelf. Scrolled rather
+   than wrapped: a wrapped grid loses the one thing the row is for, which is
+   looking like the shelf the reader is standing in front of. */
+.scan-film {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 6px 0 12px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius);
+  align-items: stretch;
+}
+.scan-strip {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  position: relative;
+  scroll-snap-align: center;
+  line-height: 0;
+}
+.scan-strip img {
+  height: 150px;
+  width: auto;
+  display: block;
+  border-radius: 2px;
+}
+.scan-strip.current {
+  border-color: var(--accent);
+}
+.scan-strip.is-done img,
+.scan-strip.is-skipped img {
+  opacity: 0.35;
+}
+.scan-mark {
+  position: absolute;
+  inset: auto 0 2px 0;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--accent-text);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+
+.scan-one {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+  margin: 18px 0 0;
+}
+.scan-one-img {
+  flex: 0 0 auto;
+  height: 360px;
+  width: auto;
+  /* A thin paperback is a real strip — 1.2cm of spine on a 90cm shelf is
+     about 18 of 1400 pixels — and scaled to 360px tall it comes out eight
+     pixels wide, which looks like a rendering fault rather than a book. The
+     minimum keeps it legible as what it is: something narrow. */
+  min-width: 30px;
+  max-width: 120px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  image-rendering: auto;
+}
+.scan-ask {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.scan-field {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.scan-field input {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  font: inherit;
+  font-size: 17px;
+  color: inherit;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin: 5px 0 0;
+}
+.scan-field input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.scan-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.scan-settled {
+  font-size: 13.5px;
+  color: var(--text-soft);
+  margin: 0 0 12px;
+}
+
+.scan-cands {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-width: 44rem;
+}
+.scan-cands li {
+  margin: 0 0 6px;
+}
+.scan-cand {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'title conf' 'meta conf';
+  gap: 1px 12px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  align-items: center;
+}
+.scan-cand:hover {
+  border-color: var(--text-faint);
+}
+.scan-cand[disabled] {
+  cursor: default;
+  opacity: 0.6;
+}
+.scan-cand-title {
+  grid-area: title;
+  font-weight: 500;
+}
+.scan-cand-meta {
+  grid-area: meta;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.scan-conf {
+  grid-area: conf;
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-faint);
+}
+.scan-conf.high {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.scan-exact {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  background: var(--bg-elev);
+}
+.scan-exact > p {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+
+@media (max-width: 720px) {
+  .scan {
+    padding: 16px 16px 80px;
+  }
+  /* The big strip and the question stack, and the strip lies down: a
+     360px-tall image above the keyboard leaves nothing to type into. */
+  .scan-one {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .scan-one-img {
+    height: 180px;
+    max-width: 100%;
+    align-self: flex-start;
+  }
+  .scan-strip img {
+    height: 120px;
+  }
+}

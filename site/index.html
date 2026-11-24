@@ -110,6 +110,7 @@
 
           <div class="menu-panel" id="menu-panel">
             <a class="btn ghost" href="#/shelf" id="shelf-link">我的書架 <span class="badge" id="shelf-count" hidden>0</span></a>
+            <a class="btn ghost" href="#/scan">拍照加書</a>
             <!-- A real path, not a hash route: /browse/ is the generated index
                  of the scope pages, outside the app. The footer link below is
                  what a crawler needs; this is what a reader needs, since the
@@ -181,6 +182,8 @@
       <div id="about-view" hidden></div>
       <!-- Bookshelf -->
       <div id="shelf-view" hidden></div>
+      <!-- Building a shelf from a photograph of one -->
+      <div id="scan-view" hidden></div>
     </main>
 
     <footer class="footer">
@@ -194,6 +197,13 @@
 
     <script src="tokenize.js"></script>
     <script src="scope-path.js"></script>
+    <!-- Photographing a shelf: segmentation, matching, and the browser glue
+         that joins them. Separate files because the first two are pure and
+         tested in Node (tools/spine-split.test.js, tools/scan-match.test.js)
+         and the third is the only part that needs a canvas. -->
+    <script src="spine-split.js"></script>
+    <script src="scan-match.js"></script>
+    <script src="shelf-scan.js"></script>
     <script src="derive.js"></script>
     <script src="doc-codec.js"></script>
     <script src="entities.js"></script>
