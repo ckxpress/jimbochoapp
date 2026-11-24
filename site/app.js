@@ -2417,8 +2417,20 @@
 
   /* Covers are not in the source data; they are looked up by ISBN at render
      time, best source first, with a generated cover if nothing resolves. */
+  /* 3ook's renditions are a width in the URL, so the detail view can ask for
+     the bigger one without the build storing a second column: 300 is what the
+     161px grid tile needs on a 2x screen, 600 is what the detail view wants.
+     Falling back to the stored 300 keeps a working cover if the wider one is
+     ever refused. */
+  var THREEOOK_THUMB = /^https:\/\/static\.like\.co\/thumbnail\/\?url=[^\s]*[?&]width=300$/;
+
   function coverSources(row, large) {
-    if (row.cover) return [row.cover];
+    if (row.cover) {
+      if (large && THREEOOK_THUMB.test(row.cover)) {
+        return [row.cover.replace(/width=300$/, 'width=600'), row.cover];
+      }
+      return [row.cover];
+    }
     // When the build has already resolved covers, a record without one is
     // known not to have one. Probing again per visitor would mean two failed
     // requests for most of the catalogue, for nothing.

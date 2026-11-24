@@ -55,8 +55,23 @@ function language(value) {
  * because the grid defers loading until a card is in view; worth asking 3ook
  * for a thumbnail size.
  */
+/* The grid draws a cover at 161x243 CSS pixels. `thumbnailUrl` is not a
+ * thumbnail — it is the full artwork the shop sells the book with, measured
+ * at 1141x1600 and a median of 271 KB, with one at 2.5 MB, served
+ * `cf-cache-status: DYNAMIC` so every reader fetches it from origin. Eighteen
+ * of those is a grid that fills in long after the titles do, which reads as
+ * covers that are missing rather than covers that are late.
+ *
+ * The feed now carries renditions: thumbnails.small is 300px wide and the
+ * same cover above came back 33 KB and `cf-cache-status: HIT` — 79 times
+ * smaller, and in the same range as the OpenLibrary covers beside it
+ * (16-51 KB). That is what belongs in the column.
+ *
+ * Order matters below: small first, then the originals, which still carry
+ * records the renditions have not reached. */
 function coverUrl(b) {
-  for (const u of [b.imageUrl, b.thumbnailUrl]) {
+  const small = b.thumbnails && b.thumbnails.small && b.thumbnails.small.url;
+  for (const u of [small, b.imageUrl, b.thumbnailUrl, b.productImageUrl]) {
     if (typeof u === 'string' && /^https?:\/\//.test(u)) return u;
   }
   return '';
