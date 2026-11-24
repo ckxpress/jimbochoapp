@@ -110,6 +110,11 @@
 
           <div class="menu-panel" id="menu-panel">
             <a class="btn ghost" href="#/shelf" id="shelf-link">我的書架 <span class="badge" id="shelf-count" hidden>0</span></a>
+            <!-- A real path, not a hash route: /browse/ is the generated index
+                 of the scope pages, outside the app. The footer link below is
+                 what a crawler needs; this is what a reader needs, since the
+                 footer sits past the whole results grid. -->
+            <a class="btn ghost" href="/browse/">瀏覽</a>
             <a class="btn ghost" href="#/about">資料說明</a>
             <button class="btn icon" id="theme-toggle" type="button" title="切換主題" aria-label="切換主題">
               <span aria-hidden="true">◐</span>
