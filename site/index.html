@@ -28,6 +28,28 @@
 
     <script defer src="install.js"></script>
 
+    <!-- Cloudflare Web Analytics. No cookies, no cross-site identifiers, no
+         personal data: it counts page views, referrers and countries, which
+         is what "how many people use this" actually needs.
+
+         The token is public by design — it identifies the site, not an
+         account, and every visitor's browser sees it. Paste it from
+         Cloudflare → Analytics & Logs → Web Analytics → jimbocho.app.
+
+         Until it is filled in, the placeholder below loads nothing and makes
+         no request, so an unconfigured deploy is silent rather than noisy. -->
+    <script>
+      (function () {
+        var token = '__CF_BEACON_TOKEN__';
+        if (token.slice(0, 2) === '__') return;
+        var s = document.createElement('script');
+        s.defer = true;
+        s.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+        s.setAttribute('data-cf-beacon', JSON.stringify({ token: token }));
+        document.head.appendChild(s);
+      })();
+    </script>
+
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="神保町" />
     <meta property="og:title" content="神保町 jimbocho.app" />

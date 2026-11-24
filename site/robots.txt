@@ -1,0 +1,19 @@
+# 神保町 jimbocho.app
+#
+# Everything here is public book metadata and meant to be found. Crawl it.
+#
+# There is one indexable page: the catalogue is a single-page app whose
+# routes are hash fragments (#/?q=…), which crawlers do not treat as separate
+# URLs. So this file and the sitemap beside it currently describe one
+# address. They exist now because Search Console wants both before it will
+# report anything, and because the day the catalogue gets real per-publisher
+# and per-book paths, this is where they get announced.
+
+User-agent: *
+Allow: /
+
+# A developer page for inspecting the database connection. No catalogue
+# content, nothing a reader wants in a search result.
+Disallow: /diagnose.html
+
+Sitemap: https://jimbocho.app/sitemap.xml

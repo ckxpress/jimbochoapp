@@ -45,6 +45,11 @@ const TYPES = {
   // GitHub Pages serves these two; match it so a manifest or icon problem
   // shows up here rather than only after a deploy.
   '.webmanifest': 'application/manifest+json; charset=utf-8',
+  // robots.txt and sitemap.xml are served by GitHub Pages with these
+  // types; without them here a local check sees application/octet-stream
+  // and cannot tell a correct file from one a crawler would refuse.
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
