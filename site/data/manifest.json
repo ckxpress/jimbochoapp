@@ -1,7 +1,7 @@
 {
   "api": "https://jimbocho-search.likerland.workers.dev",
-  "generatedAt": "2026-11-22T23:01:03.085Z",
-  "totalBooks": 448396,
+  "generatedAt": "2026-11-24T01:44:24.726Z",
+  "totalBooks": 448401,
   "datasets": [
     {
       "id": "3ook",
@@ -16,7 +16,7 @@
       "region": "香港",
       "year": null,
       "adapter": "3ook",
-      "count": 2303,
+      "count": 2308,
       "files": {
         "index": [
           "3ook.index.0.json"
@@ -33,15 +33,15 @@
           "file": "cache/3ook-feed.json",
           "quarter": "",
           "language": "",
-          "count": 2303
+          "count": 2308
         }
       ],
       "stats": {
-        "withIsbn": 1446,
+        "withIsbn": 1449,
         "classifications": 0,
         "publishers": 188,
         "languages": {
-          "zh": 2027,
+          "zh": 2032,
           "en": 79,
           "ja": 2,
           "und": 1
@@ -74,7 +74,7 @@
         ],
         "topClassifications": []
       },
-      "importedAt": "2026-11-22T23:01:03.084Z"
+      "importedAt": "2026-11-24T01:44:24.724Z"
     },
     {
       "id": "ncl-nbinet",
@@ -3296,18 +3296,18 @@
   "coversFound": 67558,
   "db": {
     "file": "books.db",
-    "bytes": 490921984,
-    "md5": "dbc8c3ba033a327515464d404319a961",
+    "bytes": 491212800,
+    "md5": "f9cb121924b6fd303ac0a66b32bd6591",
     "pageSize": 4096,
     "chunkBytes": 32768,
     "maxReadBytes": 262144,
-    "pages": 119854,
+    "pages": 119925,
     "probe": {
       "rowid": 1,
       "id": "3ook:0x72975656955cc29df8ccfd0d0fe82e643d79663f"
     },
-    "builtAt": "2026-11-22T23:02:08.562Z",
-    "url": "https://db.jimbocho.app/books-dbc8c3ba.db"
+    "builtAt": "2026-11-24T01:45:31.254Z",
+    "url": "https://db.jimbocho.app/books-f9cb1219.db"
   },
   "firstPage": {
     "file": "firstpage.json",
@@ -4102,7 +4102,7 @@
   "facetLists": {
     "dir": "facet/",
     "counts": {
-      "publisher": 38200,
+      "publisher": 38199,
       "classification": 1149
     }
   },
